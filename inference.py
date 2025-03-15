@@ -174,15 +174,7 @@ def main(config):
 
         for epoch_idx, test_epoch in enumerate(saved_model_epochs):
 
-            if os.path.basename(config.config_file) == "config_demo.json":
-                load_path = (
-                    experiment_path
-                    + "/"
-                    + opts.experiment_dirs.model_dir
-                    + "/model.pth"
-                )
-            else:
-                load_path = model_dir + "/epoch_%d_model.pth" % (test_epoch)
+            load_path = model_dir + "/epoch_%d_model.pth" % (test_epoch)
 
             # Restore model
             checkpoint = torch.load(load_path)
