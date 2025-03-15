@@ -1,1 +1,11 @@
 .DS_Store
+**/__pycache__
+configs/config.json
+*.pbs
+standardisation_*
+prepare_demo_data.ipynb
+TODO.txt
+experiments/
+data_demo/histology_breast_demo.tif
+data_demo/nuclei_breast_demo.tif
+losses.csv
