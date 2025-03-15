@@ -6,7 +6,6 @@ The increased use of spatially resolved transcriptomics provides new biological 
 
 ![alt text](Figure1.png)
 
-pip 
 ## Installation
 
 > **Note**: A GPU with 24GB VRAM is strongly recommended for the deep learning component, and 32GB RAM for data processing.
