@@ -136,6 +136,9 @@ conda init tcsh
 During the H&E nuclei segmentation step using Hover-Net, we have encountered the error below, though the segmentation still ran OK:
 ``Error: mkl-service + Intel(R) MKL: MKL_THREADING_LAYER=INTEL is incompatible with libgomp.so.1 library. Try to import numpy first or set the threading layer accordingly. Set MKL_SERVICE_FORCE_INTEL to force it.``
 
+## Figures
+
+Code for creating the output figures may be found in https://github.com/SydneyBioX/GHIST_figure
 
 ## Citation
 
