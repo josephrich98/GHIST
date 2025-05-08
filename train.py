@@ -20,12 +20,6 @@ from utils.utils import *
 def main(config):
     opts = json_file_to_pyobj(config.config_file)
 
-    if os.path.basename(config.config_file) == "config_demo.json":
-        demo = True
-    else:
-        demo = False
-    # demo = False
-
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(message)s",
         level=logging.INFO,
@@ -34,7 +28,7 @@ def main(config):
     device = get_device(config.gpu_id)
 
     # Create experiment directories
-    if demo is True or config.resume_epoch != 0:
+    if config.resume_epoch != 0:
         make_new = False
     else:
         make_new = True
@@ -117,7 +111,6 @@ def main(config):
         opts.data,
         opts.regions_val,
         opts.comps,
-        opts.stain_norm,
         classes,
         gene_names,
         device,
@@ -155,20 +148,15 @@ def main(config):
         initial_epoch = 0
 
     # Restore saved model
-    if config.resume_epoch != 0 or demo:
+    if config.resume_epoch != 0:
         logging.info("Resume training")
 
-        if demo:
-            load_path = (
-                experiment_path + "/" + opts.experiment_dirs.model_dir + "/model.pth"
-            )
-        else:
-            load_path = (
-                experiment_path
-                + "/"
-                + opts.experiment_dirs.model_dir
-                + "/epoch_%d_model.pth" % (config.resume_epoch)
-            )
+        load_path = (
+            experiment_path
+            + "/"
+            + opts.experiment_dirs.model_dir
+            + "/epoch_%d_model.pth" % (config.resume_epoch)
+        )
         checkpoint = torch.load(load_path)
 
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -177,20 +165,18 @@ def main(config):
 
         model.to(device)
 
-        if demo:
-            load_path = (
-                experiment_path + "/" + opts.experiment_dirs.model_dir + "/optim.pth"
-            )
-        else:
+        try:
             load_path = (
                 experiment_path
                 + "/"
                 + opts.experiment_dirs.model_dir
                 + "/epoch_%d_optim.pth" % (config.resume_epoch)
             )
-        checkpoint = torch.load(load_path)
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        print("Loaded " + load_path)
+            checkpoint = torch.load(load_path)
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            print("Loaded " + load_path)
+        except:
+            print("Optimizer state dict not found")
 
     else:
         model.to(device)
@@ -208,21 +194,21 @@ def main(config):
     loss_comp_est = nn.KLDivLoss(reduction="batchmean")
     loss_comp_gt = nn.KLDivLoss(reduction="batchmean")
 
-    losses_names = [
-        "loss_epoch_expr",
-        "loss_epoch_ct_hist",
-        "loss_epoch_map",
-        "loss_epoch_expr_ct",
-        "loss_epoch_expr_immune",
-        "loss_epoch_expr_invasive",
-        "loss_epoch_expr_ct_embed",
-        "loss_epoch_logits",
-        "loss_epoch_comp_est",
-        "loss_epoch_comp_gt"
-    ]
-    df_losses = pd.DataFrame(
-        0.0, index=list(range(opts.training.total_epochs)), columns=losses_names
-    )
+    # losses_names = [
+    #     "loss_epoch_expr",
+    #     "loss_epoch_ct_hist",
+    #     "loss_epoch_map",
+    #     "loss_epoch_expr_ct",
+    #     "loss_epoch_expr_immune",
+    #     "loss_epoch_expr_invasive",
+    #     "loss_epoch_expr_ct_embed",
+    #     "loss_epoch_logits",
+    #     "loss_epoch_comp_est",
+    #     "loss_epoch_comp_gt"
+    # ]
+    # df_losses = pd.DataFrame(
+    #     0.0, index=list(range(opts.training.total_epochs)), columns=losses_names
+    # )
 
     for epoch in range(initial_epoch, opts.training.total_epochs):
         print(f"Epoch: {epoch+1}")
@@ -422,35 +408,35 @@ def main(config):
                 epoch + 1, opts.training.total_epochs, loss_epoch
             )
         )
-        print(
-            "EXPR:{:.4f}, CT:{:.4f}, MAP:{:.4f}, EXPR_CT:{:.4f}, EXPR_IMM:{:.4f}, EXPR_INV:{:.4f}, EXPR_CT_FV:{:.4f}, EXPR_CT_LOGITS:{:.4f}, COMP_EST:{:.4f}, COMP_GT:{:.4f}".format(
-                loss_epoch_expr,
-                loss_epoch_ct_hist,
-                loss_epoch_map,
-                loss_epoch_expr_ct,
-                loss_epoch_expr_immune,
-                loss_epoch_expr_invasive,
-                loss_epoch_expr_ct_embed,
-                loss_epoch_logits,
-                loss_epoch_comp_est,
-                loss_epoch_comp_gt,
-            )
-        )
+        # print(
+        #     "EXPR:{:.4f}, CT:{:.4f}, MAP:{:.4f}, EXPR_CT:{:.4f}, EXPR_IMM:{:.4f}, EXPR_INV:{:.4f}, EXPR_CT_FV:{:.4f}, EXPR_CT_LOGITS:{:.4f}, COMP_EST:{:.4f}, COMP_GT:{:.4f}".format(
+        #         loss_epoch_expr,
+        #         loss_epoch_ct_hist,
+        #         loss_epoch_map,
+        #         loss_epoch_expr_ct,
+        #         loss_epoch_expr_immune,
+        #         loss_epoch_expr_invasive,
+        #         loss_epoch_expr_ct_embed,
+        #         loss_epoch_logits,
+        #         loss_epoch_comp_est,
+        #         loss_epoch_comp_gt,
+        #     )
+        # )
 
-        losses_row = [
-            loss_epoch_expr,
-            loss_epoch_ct_hist,
-            loss_epoch_map,
-            loss_epoch_expr_ct,
-            loss_epoch_expr_immune,
-            loss_epoch_expr_invasive,
-            loss_epoch_expr_ct_embed,
-            loss_epoch_logits,
-            loss_epoch_comp_est,
-            loss_epoch_comp_gt
-        ]
+        # losses_row = [
+        #     loss_epoch_expr,
+        #     loss_epoch_ct_hist,
+        #     loss_epoch_map,
+        #     loss_epoch_expr_ct,
+        #     loss_epoch_expr_immune,
+        #     loss_epoch_expr_invasive,
+        #     loss_epoch_expr_ct_embed,
+        #     loss_epoch_logits,
+        #     loss_epoch_comp_est,
+        #     loss_epoch_comp_gt
+        # ]
 
-        df_losses.loc[epoch, :] = losses_row.copy()
+        # df_losses.loc[epoch, :] = losses_row.copy()
 
         # Save model
         if (epoch % opts.save_freqs.model_freq) == 0:
@@ -475,7 +461,7 @@ def main(config):
 
         global_step += 1
 
-    df_losses.to_csv(f"{experiment_path}/losses.csv")
+    # df_losses.to_csv(f"{experiment_path}/losses.csv")
 
     logging.info("Training finished")
 

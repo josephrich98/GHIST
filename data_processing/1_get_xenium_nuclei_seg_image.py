@@ -18,12 +18,13 @@ def process_patch(ws, we, df, cell_ids, max_w, max_h, dir_output):
 
     df_chunk = df[(df["vertex_x"] >= ws) & (df["vertex_x"] < we)]
     cells_chunk = list(set(df_chunk["cell_id"].tolist()))
+    # print(len(cells_chunk))
 
     cells_intersect = list(set(cell_ids) & set(cells_chunk))
 
     df_cells = df[df["cell_id"].isin(cells_intersect)]
 
-    print(df_cells.shape)
+    # print(ws, we, df_cells.shape)
 
     for cell in tqdm(cells_intersect, total=len(cells_intersect)):
         df_cell = df_cells[(df_cells["cell_id"] == cell)]
@@ -62,6 +63,14 @@ def process_patch_wrapper(ws, we, df, cell_ids, max_w, max_h, dir_output):
     process_patch(ws, we, df, cell_ids, max_w, max_h, dir_output)
 
 
+def df_column_switch(df, column1, column2):
+    cols = df.columns.tolist()
+    i, j = cols.index(column1), cols.index(column2)
+    cols[i], cols[j] = cols[j], cols[i]
+    df.columns = cols
+    return df
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -91,7 +100,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--crop_fraction",
-        default=0.25,
+        default=0.2,
         type=float,
         help="process segmentation in patches - size as fraction of whole image",
     )
@@ -129,11 +138,17 @@ if __name__ == "__main__":
         # map to integers if ct is string
         cell_ids = list(range(1, len(cell_ids_orig) + 1))
         df_cid = pd.DataFrame(cell_ids, index=cell_ids_orig, columns=["cell_id_num"])
-        fp_out_cid = f"{dir_output}/cell_ids_dict.csv"
+        fp_out_cid = f"{dir_output}/xenium_cell_ids_dict.csv"
         df_cid.to_csv(fp_out_cid)
+
+        df = df.merge(df_cid, how='left', left_on='cell_id', right_index=True)
+
+        # make numerical IDs the default
+        df = df_column_switch(df, "cell_id", "cell_id_num")
     else:
         cell_ids = cell_ids_orig.copy()
 
+    # try on a small subset
     # cell_ids = random.sample(cell_ids, 200)
 
     he_img = tifffile.imread(config.fp_he_img)
@@ -157,8 +172,8 @@ if __name__ == "__main__":
     df["vertex_x"] = df["vertex_x"].round(0).astype(int)
     df["vertex_y"] = df["vertex_y"].round(0).astype(int)
 
-    print(df["vertex_x"].min(), df["vertex_x"].max())
-    print(df["vertex_y"].min(), df["vertex_y"].max())
+    # print(df["vertex_x"].min(), df["vertex_x"].max())
+    # print(df["vertex_y"].min(), df["vertex_y"].max())
 
     n_processes = get_n_processes(config.n_processes)
 
@@ -218,7 +233,7 @@ if __name__ == "__main__":
     )
     final = final.astype(np.uint32)
 
-    print("Total nuclei", len(np.unique(final)))
+    print("Total nuclei", len(np.unique(final)) - 1)
 
     tifffile.imwrite(fp_out, final, photometric="minisblack")
 

@@ -25,7 +25,7 @@ def crop_patches(img, dir_output, crop_size, height_whole, width_whole):
     h_starts = list(np.arange(0, height_whole - height, height))
     w_starts = list(np.arange(0, width_whole - width, width))
     coords_starts = [(x, y) for x in h_starts for y in w_starts]
-    print("Num crops:", len(coords_starts))
+    # print("Num crops:", len(coords_starts))
 
     for h, w in coords_starts:
         fp_output_patch = dir_output + "/%d_%d.tif" % (h, w)
@@ -39,7 +39,7 @@ def crop_patches(img, dir_output, crop_size, height_whole, width_whole):
     vs_w_starts = vs_num * [vs_w_start]
 
     coords_starts = list(zip(vs_h_starts, vs_w_starts))
-    print("Num crops right edge:", len(coords_starts))
+    # print("Num crops right edge:", len(coords_starts))
 
     for h, w in coords_starts:
         fp_output_patch = dir_output + "/%d_%d.tif" % (h, w)
@@ -53,7 +53,7 @@ def crop_patches(img, dir_output, crop_size, height_whole, width_whole):
     hs_h_starts = hs_num * [hs_h_start]
 
     coords_starts = list(zip(hs_h_starts, hs_w_starts))
-    print("Num crops bottom edge:", len(coords_starts))
+    # print("Num crops bottom edge:", len(coords_starts))
 
     for h, w in coords_starts:
         fp_output_patch = dir_output + "/%d_%d.tif" % (h, w)
@@ -160,8 +160,11 @@ def combine_crops(hist_h, hist_w, dir_output, dir_hovernet_output):
     # first set of border pixels
     hs_all_lower = natsort.natsorted(list(set(hs_all)))
     ws_all_right = natsort.natsorted(list(set(ws_all)))
-    hs_all_lower.remove(0)
-    ws_all_right.remove(0)
+
+    if 0 in hs_all_lower:
+        hs_all_lower.remove(0)
+    if 0 in ws_all_right:
+        ws_all_right.remove(0)
 
     # second set of border pixels
     hs_all_upper = [x - 1 for x in hs_all_lower]

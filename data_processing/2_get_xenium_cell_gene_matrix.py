@@ -9,6 +9,7 @@ import os
 from scipy.io import mmread
 import argparse
 import sys
+import natsort
 
 
 def ungz(fp):
@@ -24,8 +25,8 @@ def get_data(fp):
     print("Loading", fp)
     df = pd.read_csv(fp, sep="\t", index_col=False, header=None)
     df.reset_index(drop=True, inplace=True)
-    print(df.head())
-    print(df.shape)
+    # print(df.head())
+    # print(df.shape)
     return df
 
 
@@ -41,9 +42,9 @@ def main(config):
     dir_output = config.dir_output
     os.makedirs(dir_output, exist_ok=True)
 
-    fp_genes = os.path.join(dir_output, config.fp_genes)
-    with open(fp_genes) as file:
-        valid_genes = [line.rstrip() for line in file]
+    # fp_genes = os.path.join(dir_output, config.fp_genes)
+    # with open(fp_genes) as file:
+    #     valid_genes = [line.rstrip() for line in file]
 
     dir_feature_matrix = config.dir_feature_matrix
 
@@ -67,10 +68,14 @@ def main(config):
     barcodes = get_data(fp_barcodes_intm)
 
     if all(isinstance(item, str) for item in barcodes[0].unique().tolist()):
-        fp_cid = f"{dir_output}/cell_ids_dict.csv"
+        map_cid = True
+        fp_cid = f"{dir_output}/xenium_cell_ids_dict.csv"
         df_cid_dict = pd.read_csv(fp_cid, index_col=0)
         cid_dict = df_cid_dict['cell_id_num'].to_dict()
-        barcodes[0] = barcodes[0].map(cid_dict).astype(int)
+        # barcodes[0] = barcodes[0].map(cid_dict).astype(int)
+    else:
+        map_cid = False
+
     # print(barcodes.head())
     # exit()
 
@@ -88,7 +93,7 @@ def main(config):
     # 3  aaabbjoo-1
     # 4  aaablchg-1
     # (162254, 1)
-    
+
     # names of the features
     features = get_data(fp_features_intm)
     feature_names = features.loc[features.iloc[:, 2] == "Gene Expression", 1]
@@ -98,19 +103,48 @@ def main(config):
     matrix = mmread(fp_matrix_intm)
     matrix_array = matrix.toarray()
 
-    # Desired order of the feature names (that matches the other cell key gene matrices)
+    # filter gene names, sort, and save list
+    valid_genes = feature_names.copy()
+    transcripts_to_filter = [
+        "NegControlProbe_",
+        "antisense_",
+        "NegControlCodeword_",
+        "BLANK_",
+        "Blank-",
+        "NegPrb",
+        "Unassigned",
+    ]
+    valid_genes = [
+        item for item in valid_genes
+        if not any(substr in item for substr in transcripts_to_filter)
+    ]
+    valid_genes = natsort.natsorted(valid_genes)
+    fp_out_genes = os.path.join(dir_output, config.fp_genes)
+    with open(fp_out_genes, "w") as f:
+        for line in valid_genes:
+            f.write(f"{line}\n")
+
+    # Order the feature names (that matches the other cell key gene matrices)
     idx_order = [feature_names.index(x) for x in valid_genes]
     matrix_filtered = matrix_array[idx_order, :]
 
     # cell x gene
     matrix_filtered = matrix_filtered.T
-    print(matrix_filtered.shape)
+    # print(matrix_filtered.shape)
 
     fp_out_matrix = os.path.join(dir_output, config.fp_out_matrix)
 
     df_matrix_filtered = pd.DataFrame(
         matrix_filtered, index=barcodes[0], columns=valid_genes
     )
+
+    if map_cid:
+        cid_dict = df_cid_dict["cell_id_num"].to_dict()
+        df_matrix_filtered = df_matrix_filtered[
+            df_matrix_filtered.index.isin(cid_dict.keys())
+        ]
+        df_matrix_filtered.index = df_matrix_filtered.index.map(cid_dict)
+
     df_matrix_filtered.to_csv(fp_out_matrix)
 
     print("Saved", fp_out_matrix)

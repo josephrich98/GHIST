@@ -29,6 +29,11 @@ from scipy.stats import rankdata
 def main(config):
     opts = json_file_to_pyobj(config.config_file)
 
+    if os.path.basename(config.config_file) == "config_demo.json" and config.mode == "predict":
+        demo_predict = True
+    else:
+        demo_predict = False
+
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(message)s",
         level=logging.INFO,
@@ -44,15 +49,15 @@ def main(config):
     )
     experiment_path = f"experiments/{timestamp}"
     model_dir = experiment_path + "/" + opts.experiment_dirs.model_dir
-    if config.mode == "test":
-        test_output_dir = (
-            experiment_path + "/" + opts.experiment_dirs.test_output_dir + "/"
+    if config.mode == "predict":
+        predict_output_dir = (
+            experiment_path + "/" + opts.experiment_dirs.predict_output_dir + "/"
         )
     else:
-        test_output_dir = (
+        predict_output_dir = (
             experiment_path + "/" + opts.experiment_dirs.val_output_dir + "/"
         )
-    os.makedirs(test_output_dir, exist_ok=True)
+    os.makedirs(predict_output_dir, exist_ok=True)
 
     # Set up the model
     logging.info("Initialising model")
@@ -107,7 +112,9 @@ def main(config):
     )
 
     # Get list of model files
-    if config.epoch < 0:
+    if demo_predict:
+        saved_model_epochs = ["demo_predict"]
+    elif config.epoch in ["last", "all"]:
         saved_model_paths = glob.glob(f"{model_dir}/epoch_*.pth")
         saved_model_paths = sorted_alphanumeric(saved_model_paths)
         saved_model_names = [
@@ -116,35 +123,38 @@ def main(config):
         saved_model_epochs = [x.split("_")[1] for x in saved_model_names]
         saved_model_epochs = list(set(saved_model_epochs))
         saved_model_epochs = sorted_alphanumeric(saved_model_epochs)
-        if config.epoch == -2:
+        if config.epoch == "all":
             saved_model_epochs = np.array(saved_model_epochs, dtype="int")
-        elif config.epoch == -1:
+        elif config.epoch == "last":
             saved_model_epochs = np.array(saved_model_epochs[-1], dtype="int")
             saved_model_epochs = [saved_model_epochs]
     else:
-        saved_model_epochs = [config.epoch]
+        epoch_valid = is_valid_positive_int(config.epoch)
+        if epoch_valid:
+            saved_model_epochs = [int(config.epoch)]
+        else:
+            sys.exit("Invalid --epoch: specify an integer, or use 'last' for the most recent, or 'all' for all epochs")
 
     # Dataloader
     logging.info("Preparing data")
 
     if config.mode == "val":
         opts_data_sources = opts.data_sources_train_val
-    elif config.mode == "test":
-        opts_data_sources = opts.data_sources_test
+    elif config.mode == "predict":
+        opts_data_sources = opts.data_sources_predict
     else:
-        sys.exit("Invalid --mode: choose either val or test")
+        sys.exit("Invalid --mode: choose either val or predict")
 
     if config.mode == "val":
         opts_regions = opts.regions_val
     else:
-        opts_regions = opts.regions_test
+        opts_regions = opts.regions_predict
 
-    test_dataset = DataProcessing(
+    predict_dataset = DataProcessing(
         opts_data_sources,
         opts.data,
         opts_regions,
         opts.comps,
-        opts.stain_norm,
         classes,
         gene_names,
         device,
@@ -152,29 +162,32 @@ def main(config):
         False,
         config.fold_id,
         mode=config.mode,
+        demo_predict=demo_predict
     )
     dataloader = DataLoader(
-        dataset=test_dataset,
+        dataset=predict_dataset,
         batch_size=opts.training.batch_size,
         shuffle=False,
         num_workers=opts.data.num_workers,
         drop_last=False,
     )
 
-    n_test_examples = len(dataloader)
-    logging.info("Total number of patches: %d" % n_test_examples)
+    n_predict_examples = len(dataloader)
+    logging.info("Total number of patches: %d" % n_predict_examples)
 
     logging.info("Begin prediction")
 
     all_f1_ct = []
-    all_acc_ct = []
     all_corr_mean = []
 
     with torch.no_grad():
 
-        for epoch_idx, test_epoch in enumerate(saved_model_epochs):
+        for epoch_idx, predict_epoch in enumerate(saved_model_epochs):
 
-            load_path = model_dir + "/epoch_%d_model.pth" % (test_epoch)
+            if demo_predict:
+                load_path = f"{model_dir}/model.pth"
+            else:
+                load_path = model_dir + "/epoch_%d_model.pth" % (predict_epoch)
 
             # Restore model
             checkpoint = torch.load(load_path)
@@ -196,7 +209,7 @@ def main(config):
             all_expr = None
             all_expr_gt = None
             all_comp_est = np.zeros(
-                (n_test_examples * opts.training.batch_size, n_classes)
+                (n_predict_examples * opts.training.batch_size, n_classes)
             )
             all_comp_est_i = 0
             all_comp_est_by_cell = None
@@ -214,13 +227,13 @@ def main(config):
 
                 batch_nuclei = batch_nuclei.to(device)
                 batch_he_img = batch_he_img.to(device)
-                batch_expr = batch_expr.to(device)  # all zeros placeholder if test
+                batch_expr = batch_expr.to(device)  # all zeros placeholder if predict
                 batch_n_cells = batch_n_cells.to(device)
-                batch_ct = batch_ct.to(device)  # all zeros placeholder if test
+                batch_ct = batch_ct.to(device)  # all zeros placeholder if predict
                 patch_ids = patch_ids.to(device)
 
                 # assume no GT available, don't calculate performance
-                if config.mode == "test":
+                if config.mode == "predict":
                     batch_ct_input = None
                     batch_expr_input = None
                 else:
@@ -230,7 +243,7 @@ def main(config):
                 (
                     out_cell_type,
                     _,
-                    batch_ct_pc,  # all zeros placeholder if test
+                    batch_ct_pc,  # all zeros placeholder if predict
                     out_expr,
                     out_expr_immune,
                     out_expr_invasive,
@@ -238,7 +251,7 @@ def main(config):
                     _,
                     _,
                     _,
-                    batch_expr_pc,  # all zeros placeholder if test
+                    batch_expr_pc,  # all zeros placeholder if predict
                     comp_estimated,
                     batch_area,
                     patch_ids_pc,
@@ -441,7 +454,7 @@ def main(config):
 
             # save predicted expr
             df_all_expr = pd.DataFrame(all_expr, index=all_ids, columns=gene_names)
-            fp_expr_out = test_output_dir + "epoch_%d_expr.csv" % test_epoch
+            fp_expr_out = f"{predict_output_dir}/epoch_{predict_epoch}_expr.csv"
             df_all_expr.to_csv(fp_expr_out)
             print(
                 f"Saved predicted expressions of {len(unique_indices)} cells to {fp_expr_out}"
@@ -492,15 +505,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--epoch",
-        default=-2,
-        type=int,
-        help="test model from this epoch, -1 for last, -2 for all",
+        default="all",
+        type=str,
+        help="epoch to run: specify an integer, or use 'last' for the most recent, or 'all' for all epochs",
     )
     parser.add_argument(
         "--mode",
-        default="test",
+        default="predict",
         type=str,
-        help="test or val",
+        help="predict or val",
     )
     parser.add_argument(
         "--fold_id",

@@ -321,8 +321,8 @@ class Framework(nn.Module):
             out_expr_invasive,
             out_cell_type_expr,  # use_celltype
             fv_cell_type_expr,  # use_celltype
-            out_cell_type_gt_expr,  # use_celltype and not mode=test
-            fv_cell_type_gt_expr,  # use_celltype and not mode=test
+            out_cell_type_gt_expr,  # use_celltype and not mode=predict
+            fv_cell_type_gt_expr,  # use_celltype and not mode=predict
             batch_expr_pc,
             comp_estimated,  # use_neighb
             all_area,

@@ -23,31 +23,6 @@ from .utils import load_image
 from stainlib.augmentation.augmenter import HedLighterColorAugmenter
 
 
-def norm_stain(target, to_transform, device):
-    T = transforms.Compose(
-        [
-            # transforms.ToTensor(),
-            # transforms.Lambda(lambda x: x*255)
-        ]
-    )
-
-    normalizer = torchstain.normalizers.MacenkoNormalizer(backend="torch")
-
-    normalizer.fit(T(target))
-
-    to_transform = np.moveaxis(to_transform, -1, 0)
-    to_transform = torch.from_numpy(to_transform).to(device)
-
-    t_to_transform = T(to_transform)
-    norm, H, E = normalizer.normalize(I=t_to_transform, stains=True)
-
-    norm = norm.detach().cpu().numpy()
-
-    norm = norm.astype(np.uint8)
-
-    return norm
-
-
 def check_path(d):
     if not os.path.exists(d):
         sys.exit("Invalid file path %s" % d)
@@ -56,25 +31,25 @@ def check_path(d):
 def get_region_spacing(size, mode, divisions_fold):
     """
     size = size of whole H&E image in pixels
-    mode = train/val/test
+    mode = train/val/predict
     divisions_fold = list of 2 elements
-        fraction of size indicating start and end of val/test region
+        fraction of size indicating start and end of val/predict region
 
     returns array of valid coordinates along vertical
     """
     div_a = int(round(divisions_fold[0] * size))
     div_b = int(round(divisions_fold[1] * size))
 
-    wp_test = np.arange(div_a, div_b)
+    wp_predict = np.arange(div_a, div_b)
 
     if mode == "train":
         # remove val points to get train points
         wp_train = np.arange(size)
-        mask = np.isin(wp_train, wp_test, invert=True)
+        mask = np.isin(wp_train, wp_predict, invert=True)
         wp_train = wp_train[mask]
         return wp_train
     else:
-        return wp_test
+        return wp_predict
 
 
 def find_patch_coordinates(w1, w2, patch_width=256, overlap=30):
@@ -105,6 +80,7 @@ def get_input_data(
     fp_cell_type,
     cell_types,
     experiment_path,
+    demo_predict
 ):
 
     # cell gene expressions
@@ -171,18 +147,6 @@ def get_input_data(
 
     all_intersect = natsort.natsorted(all_intersect)
 
-    # # final list of valid cell IDs
-    # if mode == "train":
-    #     fp_all_intersect = "cell_ids_train_%d.txt" % (fold_id)
-    # elif mode == "test":
-    #     fp_all_intersect = "cell_ids_test_%d.txt" % (fold_id)
-    # else:
-    #     fp_all_intersect = "cell_ids_val_%d.txt" % (fold_id)
-
-    # with open(fp_all_intersect, "w") as f:
-    #     for line in all_intersect:
-    #         f.write(f"{line}\n")
-
     n_cells = len(all_intersect)
     print(f"{n_cells} cells")
 
@@ -199,22 +163,6 @@ def get_input_data(
     coords_starts = [(x, y) for x in h_starts for y in w_starts]
     coords_starts_valid = []
 
-    # # save coords_starts_valid to file
-    # if mode == "train":
-    #     fp_coords = "coords_train_%d.txt" % (fold_id)
-    # elif mode == "test":
-    #     fp_coords = "coords_test_%d.txt" % (fold_id)
-    # else:
-    #     fp_coords = "coords_val_%d.txt" % (fold_id)
-
-    # if os.path.exists(fp_coords):
-    #     coords_starts_valid = []
-    #     with open(fp_coords, 'r') as f:
-    #         for line in f:
-    #             # Split the line by comma and convert to integers, then convert to tuple
-    #             x, y = map(int, line.strip().split(','))
-    #             coords_starts_valid.append((x, y))
-    # else:
     for hs, ws in tqdm(coords_starts):
         nuclei_p = nuclei[hs : hs + hsize, ws : ws + wsize]
 
@@ -257,7 +205,11 @@ def get_input_data(
 
     # standardisation of rgb
     print("Standardisation")
-    fp_norms = f"{experiment_path}/standardisation_hist_fold_{fold_id}.npy"
+
+    if demo_predict:
+        fp_norms = f"{experiment_path}/standardisation_hist_demo_predict.npy"
+    else:
+        fp_norms = f"{experiment_path}/standardisation_hist_fold_{fold_id}.npy"
 
     if mode == "train":
         if not os.path.exists(fp_norms):
@@ -288,7 +240,6 @@ class DataProcessing(data.Dataset):
         opts_data,
         opts_regions,
         opts_comps,
-        opts_stain_norm,
         classes,
         gene_names,
         device,
@@ -296,6 +247,7 @@ class DataProcessing(data.Dataset):
         stain_aug,
         fold_id=1,
         mode="train",
+        demo_predict=False
     ):
 
         # check all the files to load
@@ -303,13 +255,13 @@ class DataProcessing(data.Dataset):
         check_path(opts_data_sources.fp_hist)
         check_path(opts_data_sources.fp_nuc_sizes)
 
-        if mode != "test":
+        if mode != "predict":
             check_path(opts_data_sources.fp_expr)
             fp_expr = opts_data_sources.fp_expr
         else:
             fp_expr = None
 
-        if opts_comps.celltype and mode != "test":
+        if opts_comps.celltype and mode != "predict":
             check_path(opts_data_sources.fp_cell_type)
             fp_cell_type = opts_data_sources.fp_cell_type
             self.cell_types = opts_data.cell_types
@@ -318,24 +270,6 @@ class DataProcessing(data.Dataset):
             fp_cell_type = None
             self.cell_types = None
             self.comps_celltype = False
-
-        self.normstain = (
-            (opts_stain_norm.norm_train * (mode == "train"))
-            or (opts_stain_norm.norm_val * (mode == "val"))
-            or (opts_stain_norm.norm_test * (mode == "test"))
-        )
-        if self.normstain:
-            check_path(opts_stain_norm.fp_norm_ref)
-
-            stain_ref = load_image(opts_stain_norm.fp_norm_ref)
-            resized_h = int(stain_ref.shape[0] * opts_stain_norm.resized_scale)
-            resized_w = int(stain_ref.shape[1] * opts_stain_norm.resized_scale)
-            stain_ref = cv2.resize(
-                stain_ref, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR
-            )
-            stain_ref = np.moveaxis(stain_ref, -1, 0)
-            self.stain_ref = torch.from_numpy(stain_ref).to(device)
-        print("Do stain normalisation:", self.normstain)
 
         self.classes = classes
         self.mode = mode
@@ -347,6 +281,7 @@ class DataProcessing(data.Dataset):
         self.device = device
         self.experiment_path = experiment_path
         self.stain_aug = stain_aug
+        self.demo_predict = demo_predict
 
         # fraction of image size: height start to height end
         divisions_fold = opts_regions.divisions[self.fold_id - 1]
@@ -381,6 +316,7 @@ class DataProcessing(data.Dataset):
             fp_cell_type,
             self.cell_types,
             experiment_path,
+            demo_predict
         )
 
         self.norms_hist = norms_hist.copy()
@@ -402,7 +338,7 @@ class DataProcessing(data.Dataset):
             ]
         )
 
-        self.tfs_test = v2.Compose(
+        self.tfs_predict = v2.Compose(
             [
                 v2.ToImage(),
                 # v2.ToDtype(torch.float32, scale=True),
@@ -429,12 +365,6 @@ class DataProcessing(data.Dataset):
             self.hed_lighter_aug.randomize()
             hist_patch = self.hed_lighter_aug.transform(hist_patch)
 
-        if self.normstain:
-            try:
-                hist_patch = norm_stain(self.stain_ref, hist_patch, self.device)
-            except:
-                print(f"norm stain failed for patch coords {hs}, {ws}")
-
         ids_seg = np.unique(nuclei_patch)
         ids_seg = ids_seg[ids_seg != 0]
 
@@ -446,7 +376,7 @@ class DataProcessing(data.Dataset):
         for k, v in dictionary.items():
             nuclei_valid[nuclei_patch == k] = v
 
-        if self.comps_celltype and self.mode != "test":
+        if self.comps_celltype and self.mode != "predict":
             # map to cell type nuclei map
             dictionary = dict(zip(valid_ids, self.df_ct.loc[valid_ids, "ct"].tolist()))
             types_patch = np.copy(nuclei_valid)
@@ -473,12 +403,12 @@ class DataProcessing(data.Dataset):
             )
 
         expr_pad = np.zeros((max_cells_per_patch, len(self.gene_names)))
-        if self.mode != "test":
+        if self.mode != "predict":
             expr = self.df_expr.loc[patch_ids, :].to_numpy()
             expr_pad[:n_cells, :] = expr.copy()
 
         gt_types_pad = np.zeros(max_cells_per_patch)
-        if self.comps_celltype and self.mode != "test":
+        if self.comps_celltype and self.mode != "predict":
             # cell type labels (previously added 1 to df_ct such that 0 is bkg)
             gt_types_pad[:n_cells] = self.df_ct.loc[patch_ids, "ct"].to_numpy() - 1
         gt_types_torch = torch.from_numpy(gt_types_pad).long()
@@ -505,7 +435,7 @@ class DataProcessing(data.Dataset):
         if self.mode == "train":
             x_input = self.tfs(x_input)
         else:
-            x_input = self.tfs_test(x_input)
+            x_input = self.tfs_predict(x_input)
 
         nuclei_torch = x_input[0, :, :].type(torch.LongTensor)
         types_patch_torch = x_input[1, :, :].type(torch.LongTensor)

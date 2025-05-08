@@ -109,8 +109,11 @@ def get_experiment_id(make_new, load_dir, fold_id):
     """
     Get timestamp ID of current experiment
     """
-    if make_new is False:
-        if load_dir == "last":
+
+    if load_dir == "demo":
+        timestamp = "demo"
+    elif make_new is False:
+        if load_dir == "latest":
             timestamp = get_newest_id("experiments", fold_id)
         else:
             timestamp = load_dir
@@ -125,14 +128,8 @@ def get_experiment_id(make_new, load_dir, fold_id):
     return timestamp
 
 
-def normalise_counts(df):
-    total_counts_per_cell = df.sum(axis=1)
-
-    scale_factor = 10000
-    df_normalized = df.div(total_counts_per_cell, axis=0) * scale_factor
-
-    df_normalized_with_pseudo = df_normalized + 1
-
-    df_log_transformed = np.log(df_normalized_with_pseudo)
-
-    return df_log_transformed
+def is_valid_positive_int(s):
+    try:
+        return int(s) > 0
+    except ValueError:
+        return False
