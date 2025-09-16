@@ -53,6 +53,4 @@ Code for creating the output figures may be found in https://github.com/SydneyBi
 
 ## Citation
 
-If GHIST has assisted you with your work, please kindly cite our paper:
-
-- https://www.biorxiv.org/content/10.1101/2024.07.02.601790v1
+If GHIST has assisted you with your work, please kindly cite our paper: https://www.nature.com/articles/s41592-025-02795-z
