@@ -1,6 +1,6 @@
 # Spatial gene expression at single-cell resolution from histology using deep learning with GHIST
 
-For more details, please refer to our [paper](https://www.biorxiv.org/content/10.1101/2024.07.02.601790v1).
+For more details, please refer to our [paper](https://www.nature.com/articles/s41592-025-02795-z).
 
 GHIST is a deep learning-based framework that predicts spatial gene expression at single-cell resolution from histology (H&E-stained) images by leveraging subcellular spatial transcriptomics and synergistic relationships between multiple layers of biological information.
 
