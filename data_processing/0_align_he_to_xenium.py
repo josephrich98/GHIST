@@ -64,8 +64,10 @@ if __name__ == "__main__":
     aligned = warp(
         he_img,
         tform.inverse,
-        preserve_range=True
-    ).astype(he_img.dtype)
+        preserve_range=True,
+        order=1,
+        output_dtype=he_img.dtype,
+    )
 
     # --- Save aligned TIFF ---
     print(f"Saving aligned H&E image to {out_path}...")
