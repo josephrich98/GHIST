@@ -7,6 +7,7 @@ standardisation_*
 demo_*.ipynb
 TODO.txt
 experiments/
+data_varseek/
 data_demo/histology_breast_demo.tif
 data_demo/nuclei_breast_demo.tif
 data_demo/images
