@@ -10,6 +10,9 @@ experiments/
 data_demo/histology_breast_demo.tif
 data_demo/nuclei_breast_demo.tif
 data_demo/images
+data_demo/he_image.tif
+data_demo/he_image_nuclei_seg.tif
+data_demo/variant_data
 losses.csv
 cells_by_type_breast2.tif
 restructure_test*
