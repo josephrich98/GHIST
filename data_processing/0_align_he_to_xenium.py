@@ -1,7 +1,7 @@
 import tifffile
 import numpy as np
 import pandas as pd
-from skimage.transform import AffineTransform, warp
+from skimage.transform import estimate_transform, warp
 import matplotlib.pyplot as plt
 import os
 import argparse
@@ -19,7 +19,7 @@ if __name__ == "__main__":
         "--fp_alignment_csv",
         default="Xenium_V1_Human_Colon_Cancer_P5_CRC_Add_on_FFPE_he_imagealignment.csv",
         type=str,
-        help="corresponding full resolution H&E image file path",
+        help="alignment CSV file path (control points between H&E and Xenium)",
     )
     parser.add_argument(
         "--n_processes",
@@ -40,28 +40,39 @@ if __name__ == "__main__":
     dir_output = config.dir_output
     os.makedirs(dir_output, exist_ok=True)
 
-    # Paths
+    # Output path
     out_path = os.path.join(dir_output, "he_image_aligned.tif")
+    out_path_lossy = os.path.join(dir_output, "he_image_aligned_jpg.tif")
 
     # --- Load image ---
+    print(f"Loading H&E image from {config.fp_he_img}...")
     he_img = tifffile.imread(config.fp_he_img)
 
-    # --- Load transform from CSV ---
+    # --- Load alignment CSV (landmark correspondences) ---
     df = pd.read_csv(config.fp_alignment_csv)
-    # Usually 2 rows (x and y), with "scale", "shear", "rotate", "translate"
-    # 10x convention: affine transform in 3x3 homogeneous matrix
-    M = df.values
-    if M.shape == (3, 3):
-        affine_matrix = M
-    else:
-        raise ValueError("Unexpected alignment CSV format")
+
+    # Moving = alignment coords (Xenium), Fixed = H&E coords
+    src = df[["alignmentX", "alignmentY"]].values  # from Xenium
+    dst = df[["fixedX", "fixedY"]].values          # to H&E
+
+    # --- Estimate affine transform ---
+    print("Estimating affine transform...")
+    tform = estimate_transform("affine", src, dst)
 
     # --- Apply transform ---
-    tform = AffineTransform(matrix=affine_matrix)
-    aligned = warp(he_img, tform.inverse, preserve_range=True).astype(he_img.dtype)
+    print("Applying transform to H&E image...")
+    aligned = warp(
+        he_img,
+        tform.inverse,
+        preserve_range=True
+    ).astype(he_img.dtype)
 
     # --- Save aligned TIFF ---
-    tifffile.imwrite(out_path, aligned)
+    print(f"Saving aligned H&E image to {out_path}...")
+    tifffile.imwrite(out_path, aligned, compression="zlib")
+
+    print(f"Also saving a lossy compressed version to {out_path_lossy}...")
+    # tifffile.imwrite(out_path_lossy, aligned, compression="jpeg", jpeg_quality=90)
 
     print(f"Aligned H&E saved to {out_path}")
 
