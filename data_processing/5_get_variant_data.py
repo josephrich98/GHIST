@@ -82,11 +82,11 @@ if __name__ == "__main__":
     df.to_csv(final_csv_path, index=True, header=True)
 
     # Now remove the index name and column name in the CSV
-    with open("matrix.csv", "r") as f:
+    with open(final_csv_path, "r") as f:
         lines = f.readlines()
 
     # Replace the first line so the first cell is blank
     lines[0] = "," + lines[0]
 
-    with open("matrix.csv", "w") as f:
+    with open(final_csv_path, "w") as f:
         f.writelines(lines)
