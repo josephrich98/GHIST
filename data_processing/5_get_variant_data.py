@@ -13,9 +13,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--dir_output", required=True, type=str)
-    parser.add_argument("--index", required=True, help="path to varseek index")
-    parser.add_argument("--t2g", required=True, help="path to varseek t2g file")
     parser.add_argument("--technology", required=True, help="technology for varseek")
+    parser.add_argument("--variant_data_dir", default=None, type=str, help="directory to store variant data, default: <dir_output>/variant_data")
+    parser.add_argument("--fastqs_dir", default=None, type=str, help="directory containing fastq files, default: <variant_data_dir>/fastqs")
+    parser.add_argument("--vk_ref_dir", default=None, type=str, help="directory to store varseek reference files, default: <variant_data_dir>/vk_ref_out")
+    parser.add_argument("--index", help="path to varseek index, default: <vk_ref_dir>/cosmic_cmc_index.idx")
+    parser.add_argument("--t2g", help="path to varseek t2g file, default: <vk_ref_dir>/cosmic_cmc_t2g.txt")
     parser.add_argument("-k", "--k", default=51, type=int, help="k for varseek count")
     parser.add_argument("--min_counts", default=3, type=int, help="min counts for varseek count")
     parser.add_argument("--disable_use_binary_matrix", action="store_false", help="whether to use binary matrix for varseek count (default: use binary matrix)")
@@ -26,17 +29,22 @@ if __name__ == "__main__":
 
     os.makedirs(config.dir_output, exist_ok=True)
 
-    variant_data_dir = os.path.join(config.dir_output, "variant_data")
+    if config.variant_data_dir is None:
+        variant_data_dir = os.path.join(config.dir_output, "variant_data")
     os.makedirs(variant_data_dir, exist_ok=True)
     
-    vk_ref_out = os.path.join(variant_data_dir, "vk_ref_out")
-    index = os.path.join(vk_ref_out, "cosmic_cmc_index.idx")
-    t2g = os.path.join(vk_ref_out, "cosmic_cmc_t2g.txt")
+    if config.vk_ref_dir is None:
+        vk_ref_dir = os.path.join(variant_data_dir, "vk_ref_out")
+    if config.index is None:
+        index = os.path.join(vk_ref_dir, "cosmic_cmc_index.idx")
+    if config.t2g is None:
+        t2g = os.path.join(vk_ref_dir, "cosmic_cmc_t2g.txt")
 
     if not os.path.exists(index) or not os.path.exists(t2g):
         raise ValueError(f"Please download the varseek index/t2g from Box, or make it with `vk ref --index {index} --t2g {t2g} -v cosmic_cmc -s cdna --dlist_reference_source t2t`")
     
-    fastqs_dir = os.path.join(variant_data_dir, "")  #!!!!!! ensure that I am using the correct fastqs here
+    if config.fastqs_dir is None:
+        fastqs_dir = os.path.join(variant_data_dir, "")  #!!!!!! ensure that I am using the correct fastqs here
     if not os.path.exists(fastqs_dir) or len(os.listdir(fastqs_dir)) == 0:
         raise ValueError(f"Please make sure the fastq files are in {fastqs_dir}")
     
