@@ -1,7 +1,7 @@
 import tifffile
 import numpy as np
 import pandas as pd
-from skimage.transform import estimate_transform, warp
+from skimage.transform import estimate_transform, warp, rescale
 import matplotlib.pyplot as plt
 import os
 import argparse
@@ -22,38 +22,45 @@ if __name__ == "__main__":
         help="alignment CSV file path (control points between H&E and Xenium)",
     )
     parser.add_argument(
-        "--n_processes",
-        default=16,
-        type=int,
-        help="num cpus to use, or None for all cpus - 1",
+        "--downsample_factor",
+        default=0.1,
+        type=float,
+        help="factor to downsample before warp (0.1 = 10% of original size)",
     )
     parser.add_argument("--dir_output", default="data_processing", type=str)
-    parser.add_argument(
-        "--del_intm_files",
-        default=True,
-        type=bool,
-        help="delete intermediate saved files",
-    )
 
     config = parser.parse_args()
 
     dir_output = config.dir_output
     os.makedirs(dir_output, exist_ok=True)
 
-    # Output path
-    out_path = os.path.join(dir_output, "he_image_aligned.tif")
-    out_path_lossy = os.path.join(dir_output, "he_image_aligned_jpg.tif")
+    out_path = os.path.join(dir_output, "he_image_aligned_zlib.tif")
 
     # --- Load image ---
     print(f"Loading H&E image from {config.fp_he_img}...")
     he_img = tifffile.imread(config.fp_he_img)
 
-    # --- Load alignment CSV (landmark correspondences) ---
+    # --- Downsample image first ---
+    if config.downsample_factor < 1.0:
+        print(f"Downsampling H&E before warp by factor {config.downsample_factor}...")
+        he_lowres = rescale(
+            he_img,
+            config.downsample_factor,
+            preserve_range=True,
+            anti_aliasing=True,
+            channel_axis=None
+        ).astype(he_img.dtype)
+    else:
+        he_lowres = he_img
+
+    # --- Load alignment CSV ---
     df = pd.read_csv(config.fp_alignment_csv)
 
-    # Moving = alignment coords (Xenium), Fixed = H&E coords
-    src = df[["alignmentX", "alignmentY"]].values  # from Xenium
-    dst = df[["fixedX", "fixedY"]].values          # to H&E
+    # Scale coordinates if downsampling
+    src = df[["alignmentX", "alignmentY"]].values
+    dst = df[["fixedX", "fixedY"]].values
+    if config.downsample_factor < 1.0:
+        dst = dst * config.downsample_factor
 
     # --- Estimate affine transform ---
     print("Estimating affine transform...")
@@ -62,24 +69,24 @@ if __name__ == "__main__":
     # --- Apply transform ---
     print("Applying transform to H&E image...")
     aligned = warp(
-        he_img,
+        he_lowres,
         tform.inverse,
         preserve_range=True,
         order=1,
         output_dtype=he_img.dtype,
     )
 
-    # --- Save aligned TIFF ---
-    print(f"Saving aligned H&E image to {out_path}...")
+    # Cast back to the original dtype
+    aligned = aligned.astype(he_img.dtype)
+
+    # --- Save compressed TIFF ---
+    print(f"Saving aligned H&E to {out_path}...")
     tifffile.imwrite(out_path, aligned, compression="zlib")
 
-    print(f"Also saving a lossy compressed version to {out_path_lossy}...")
-    # tifffile.imwrite(out_path_lossy, aligned, compression="jpeg", jpeg_quality=90)
-
-    print(f"Aligned H&E saved to {out_path}")
+    print("Done!")
 
     # Optional: quick check
     plt.figure(figsize=(8, 8))
-    plt.imshow(aligned)
+    plt.imshow(aligned, cmap="gray" if aligned.ndim == 2 else None)
     plt.axis("off")
     plt.show()
