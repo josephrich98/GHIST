@@ -12,11 +12,11 @@ import pandas as pd
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--dir_output", required=True, type=str)
+    parser.add_argument("--fastqs", required=True, nargs='+', help="path to directory of fastq files or list of fastq files")
     parser.add_argument("--technology", required=True, help="technology for varseek")
-    parser.add_argument("--variant_data_dir", default=None, type=str, help="directory to store variant data, default: <dir_output>/variant_data")
-    parser.add_argument("--fastqs_dir", default=None, type=str, help="directory containing fastq files, default: <variant_data_dir>/fastqs")
-    parser.add_argument("--vk_ref_dir", default=None, type=str, help="directory to store varseek reference files, default: <variant_data_dir>/vk_ref_out")
+    parser.add_argument("--dir_output", default="data_processing", type=str)
+    parser.add_argument("--vk_ref_dir", default="vk_ref_out", type=str, help="directory to store varseek reference files, default: vk_ref_out")
+    parser.add_argument("--vk_count_dir", default="vk_count_dir", type=str, help="directory to store variant data, default: vk_count_dir")
     parser.add_argument("--index", help="path to varseek index, default: <vk_ref_dir>/cosmic_cmc_index.idx")
     parser.add_argument("--t2g", help="path to varseek t2g file, default: <vk_ref_dir>/cosmic_cmc_t2g.txt")
     parser.add_argument("-k", "--k", default=51, type=int, help="k for varseek count")
@@ -28,42 +28,43 @@ if __name__ == "__main__":
     config = parser.parse_args()
 
     os.makedirs(config.dir_output, exist_ok=True)
-
-    if config.variant_data_dir is None:
-        variant_data_dir = os.path.join(config.dir_output, "variant_data")
-    os.makedirs(variant_data_dir, exist_ok=True)
     
-    if config.vk_ref_dir is None:
-        vk_ref_dir = os.path.join(variant_data_dir, "vk_ref_out")
     if config.index is None:
-        index = os.path.join(vk_ref_dir, "cosmic_cmc_index.idx")
+        config.index = os.path.join(config.vk_ref_dir, "cosmic_cmc_index.idx")
     if config.t2g is None:
-        t2g = os.path.join(vk_ref_dir, "cosmic_cmc_t2g.txt")
+        config.t2g = os.path.join(config.vk_ref_dir, "cosmic_cmc_t2g.txt")
 
-    if not os.path.exists(index) or not os.path.exists(t2g):
-        raise ValueError(f"Please download the varseek index/t2g from Box, or make it with `vk ref --index {index} --t2g {t2g} -v cosmic_cmc -s cdna --dlist_reference_source t2t`")
+    if not os.path.exists(config.index) or not os.path.exists(config.t2g):
+        raise ValueError(f"Please download the varseek index/t2g from Box, or make it with `vk ref --index {config.index} --t2g {config.t2g} -v cosmic_cmc -s cdna --dlist_reference_source t2t`")
     
-    if config.fastqs_dir is None:
-        fastqs_dir = os.path.join(variant_data_dir, "")  #!!!!!! ensure that I am using the correct fastqs here
-    if not os.path.exists(fastqs_dir) or len(os.listdir(fastqs_dir)) == 0:
-        raise ValueError(f"Please make sure the fastq files are in {fastqs_dir}")
+    if os.path.isdir(config.fastqs[0]):
+        if len(config.fastqs) > 1:
+            raise ValueError("If --fastqs is a directory, only provide one directory")
+        config.fastqs = config.fastqs[0]
+        
+    if isinstance(config.fastqs, str):
+        if not os.path.exists(config.fastqs) or len(os.listdir(config.fastqs)) == 0:
+            raise ValueError(f"Please make sure the fastq files are in {config.fastqs}")
+    elif isinstance(config.fastqs, list):
+        for fastq in config.fastqs:
+            if not os.path.exists(fastq):
+                raise ValueError(f"Please make sure the fastq file {fastq} exists")
     
-    vk_count_out = os.path.join(variant_data_dir, "vk_count_out")
-    if os.path.exists(vk_count_out) and len(os.listdir(vk_count_out)) > 0:
-        print(f"vk count output directory {vk_count_out} already exists and is not empty, skipping vk count")
+    if os.path.exists(config.vk_count_dir) and len(os.listdir(config.vk_count_dir)) > 0:
+        print(f"vk count output directory {config.vk_count_dir} already exists and is not empty, skipping vk count")
     else:
         print("Running vk count")
         vk_count_output_dict = vk.count(
-            fastqs_dir,
-            index=index,
-            t2g=t2g,
+            fastqs=config.fastqs,
+            index=config.index,
+            t2g=config.t2g,
             technology=config.technology,
             k=config.k,
-            out=vk_count_out,
+            out=config.vk_count_dir,
             threads=config.n_processes,
             min_counts=config.min_counts,
-            use_binary_matrix=config.use_binary_matrix,
-            drop_empty_columns=config.drop_empty_columns,
+            use_binary_matrix=config.disable_use_binary_matrix,
+            drop_empty_columns=config.disable_drop_empty_columns,
         )
     
     # save to CSV

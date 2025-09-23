@@ -73,7 +73,6 @@ if __name__ == "__main__":
         tform.inverse,
         preserve_range=True,
         order=1,
-        output_dtype=he_img.dtype,
     )
 
     # Cast back to the original dtype
@@ -82,6 +81,11 @@ if __name__ == "__main__":
     # --- Save compressed TIFF ---
     print(f"Saving aligned H&E to {out_path}...")
     tifffile.imwrite(out_path, aligned, compression="zlib")
+
+    # --- Save transformation matrix ---
+    print("Saving transformation matrix...")
+    matrix_path_npy = os.path.join(dir_output, "he_to_xenium_affine.npy")
+    np.save(matrix_path_npy, tform.params)
 
     print("Done!")
 
