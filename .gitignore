@@ -23,5 +23,6 @@ README_old.md
 inference_test.py
 data_processing_demo
 data_processing_demo.zip
+data_processing_demo_outputs
 params_*
 dataio/dataset_input_*.py
