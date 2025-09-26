@@ -7,6 +7,7 @@ import sys
 import varseek as vk
 import anndata as ad
 import pandas as pd
+import numpy as np
 
 
 if __name__ == "__main__":
@@ -63,13 +64,20 @@ if __name__ == "__main__":
             out=config.vk_count_dir,
             threads=config.n_processes,
             min_counts=config.min_counts,
-            use_binary_matrix=config.disable_use_binary_matrix,
-            drop_empty_columns=config.disable_drop_empty_columns,
         )
     
     # save to CSV
-    # Load AnnData
     adata = ad.read_h5ad(vk_count_output_dict["adata_path"])
+
+    print(f"Initial shape of variant matrix: {adata.shape}")
+
+    if not config.disable_use_binary_matrix:
+        adata.X = (adata.X > 0).astype(int)
+    
+    if not config.drop_empty_columns:
+        adata = adata[:, np.array((adata.X != 0).sum(axis=0)).flatten() > 0]
+    
+    print(f"Final shape of variant matrix: {adata.shape}")
 
     # Convert to DataFrame
     df = pd.DataFrame(
