@@ -50,6 +50,7 @@ def main(config):
     use_avgexp = opts.comps.avgexp
     use_celltype = opts.comps.celltype
     use_neighb = opts.comps.neighb if use_celltype else False
+    use_variants = opts.comps.variants
 
     if use_celltype:
         classes = opts.data.cell_types
@@ -91,6 +92,28 @@ def main(config):
     else:
         n_ref = None
         expr_ref_torch = None
+    
+    if use_variants:
+        df_var_raw = pd.read_csv(opts.data_sources_train_val.fp_variants, index_col=0)
+
+        # optional: sort or filter variant names if you have a predefined list
+        variant_names = natsort.natsorted(df_var_raw.columns.tolist())
+        df_var = pd.DataFrame(0, index=df_var_raw.index, columns=variant_names)
+        for col in variant_names:
+            df_var[col] = df_var_raw[col]
+
+        n_variants = df_var.shape[1]
+
+        # scaling (you can set opts.data.variant_scale = 1.0 if binary)
+        var_ref = opts.data.variant_scale * df_var.to_numpy()
+
+        print("Variants shape ", var_ref.shape)
+
+        var_ref_torch = torch.from_numpy(var_ref).float().to(device)
+
+    else:
+        n_variants = 0
+        var_ref_torch = None
 
     model = Framework(
         n_classes,
@@ -101,6 +124,8 @@ def main(config):
         use_avgexp,
         use_celltype,
         use_neighb,
+        use_variants,
+        n_variants=n_variants
     )
 
     # Dataloader
@@ -193,6 +218,7 @@ def main(config):
     loss_logits = nn.MSELoss(reduction="mean")
     loss_comp_est = nn.KLDivLoss(reduction="batchmean")
     loss_comp_gt = nn.KLDivLoss(reduction="batchmean")
+    loss_variants = nn.BCELoss(reduction="mean")  # for binary variants
 
     # losses_names = [
     #     "loss_epoch_expr",
@@ -229,6 +255,7 @@ def main(config):
         loss_epoch_logits = 0
         loss_epoch_comp_est = 0
         loss_epoch_comp_gt = 0
+        loss_epoch_variants = 0
 
         pbar = tqdm(dataloader)
         loss_total = None
@@ -241,6 +268,7 @@ def main(config):
             batch_n_cells,
             batch_ct,
             _,
+            batch_var,
         ) in pbar:
             optimizer.zero_grad()
 
@@ -250,6 +278,7 @@ def main(config):
             batch_expr = batch_expr.to(device)
             batch_n_cells = batch_n_cells.to(device)
             batch_ct = batch_ct.to(device)
+            batch_var = batch_var.to(device)
 
             (
                 out_cell_type,
@@ -266,6 +295,7 @@ def main(config):
                 comp_estimated,
                 _,
                 _,
+                out_variants,
             ) = model(
                 batch_he_img,
                 batch_nuclei,
@@ -273,6 +303,8 @@ def main(config):
                 expr_ref_torch,
                 batch_ct,
                 batch_expr,
+                batch_var,
+                var_ref_torch,
             )
 
             if batch_ct_pc.shape[0] == 0:
@@ -367,6 +399,11 @@ def main(config):
                 loss_comp_gt_val = torch.tensor(0.0).to(device)
                 loss_expr_immune_val = torch.tensor(0.0).to(device)
                 loss_expr_invasive_val = torch.tensor(0.0).to(device)
+            
+            if use_variants:
+                loss_variants_val = loss_variants(out_variants, batch_var.float())
+            else:
+                loss_variants_val = torch.tensor(0.0).to(device)
 
             # sum all losses
             loss = (
@@ -380,6 +417,7 @@ def main(config):
                 + loss_logits_val
                 + loss_comp_est_val
                 + loss_comp_gt_val
+                + loss_variants_val
             )
 
             loss.backward()

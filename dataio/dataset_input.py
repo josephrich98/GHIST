@@ -80,13 +80,18 @@ def get_input_data(
     fp_cell_type,
     cell_types,
     experiment_path,
-    demo_predict
+    demo_predict,
+    fp_variants=None
 ):
 
     # cell gene expressions
     if fp_expr is not None:
         df_expr = pd.read_csv(fp_expr, index_col=0)
         df_expr = df_expr[gene_names]
+    if fp_variants is not None:
+        df_var = pd.read_csv(fp_variants, index_col=0)
+    else:
+        df_var = None
 
     if fp_cell_type is not None:
         df_ct = pd.read_csv(fp_cell_type, index_col="c_id")
@@ -144,6 +149,10 @@ def get_input_data(
         df_ct = df_ct.loc[all_intersect, :]
     else:
         df_ct = None
+    
+    if df_var is not None:
+        all_intersect = list(set(all_intersect) & set(list(df_var.index.tolist())))
+        df_var = df_var.loc[all_intersect, :]
 
     all_intersect = natsort.natsorted(all_intersect)
 
@@ -230,7 +239,7 @@ def get_input_data(
 
     norms_hist = np.load(fp_norms)
 
-    return coords_starts_valid, hist, nuclei, all_intersect, df_ct, df_expr, norms_hist
+    return coords_starts_valid, hist, nuclei, all_intersect, df_ct, df_expr, norms_hist, df_var
 
 
 class DataProcessing(data.Dataset):
@@ -270,6 +279,14 @@ class DataProcessing(data.Dataset):
             fp_cell_type = None
             self.cell_types = None
             self.comps_celltype = False
+        
+        if opts_comps.variants and mode != "predict":
+            check_path(opts_data_sources.fp_variants)
+            fp_variants = opts_data_sources.fp_variants
+            self.comps_variants = True
+        else:
+            fp_variants = None
+            self.comps_variants = False
 
         self.classes = classes
         self.mode = mode
@@ -300,6 +317,7 @@ class DataProcessing(data.Dataset):
             self.df_ct,
             self.df_expr,
             norms_hist,
+            self.df_var,
         ) = get_input_data(
             opts_data_sources.fp_nuc_seg,
             opts_data_sources.fp_hist,
@@ -316,7 +334,8 @@ class DataProcessing(data.Dataset):
             fp_cell_type,
             self.cell_types,
             experiment_path,
-            demo_predict
+            demo_predict,
+            fp_variants
         )
 
         self.norms_hist = norms_hist.copy()
@@ -413,6 +432,21 @@ class DataProcessing(data.Dataset):
             gt_types_pad[:n_cells] = self.df_ct.loc[patch_ids, "ct"].to_numpy() - 1
         gt_types_torch = torch.from_numpy(gt_types_pad).long()
 
+        var_pad = np.zeros((max_cells_per_patch, self.df_var.shape[1])) if self.comps_variants else None
+
+        if self.comps_variants and self.mode != "predict":
+            var = self.df_var.loc[patch_ids, :].to_numpy()
+            var_pad[:n_cells, :] = var.copy()
+
+        if self.comps_variants and self.mode != "predict":
+            var_pad = np.zeros((max_cells_per_patch, self.df_var.shape[1]))
+            var = self.df_var.loc[patch_ids, :].to_numpy()
+            var_pad[:n_cells, :] = var.copy()
+            variants_torch = torch.from_numpy(var_pad).float()
+        else:
+            variants_torch = torch.zeros((max_cells_per_patch, 0), dtype=torch.float32)
+
+
         # cell IDs in patch
         patch_ids_pad = np.zeros(max_cells_per_patch)
         patch_ids_pad[:n_cells] = patch_ids.copy()
@@ -451,4 +485,5 @@ class DataProcessing(data.Dataset):
             n_cells_torch,
             gt_types_torch,
             patch_ids_torch,
+            variants_torch
         )

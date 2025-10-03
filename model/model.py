@@ -21,6 +21,8 @@ class Framework(nn.Module):
         use_avgexp,
         use_celltype,
         use_neighb,
+        use_variants=False,
+        n_variants=0,
         in_channels=3,
     ):
         super(Framework, self).__init__()
@@ -42,6 +44,7 @@ class Framework(nn.Module):
         self.use_avgexp = use_avgexp
         self.use_celltype = use_celltype
         self.use_neighb = use_neighb
+        self.use_variants = use_variants
 
         self.embed_hist = Embed(dim_fv, self.hidden_size)
 
@@ -78,6 +81,9 @@ class Framework(nn.Module):
         if self.use_celltype:
             self.mlp_hist = MLP(self.hidden_size, self.hidden_size, n_classes)
             self.mlp_genes = MLP(n_genes, self.hidden_size, n_classes)
+        
+        if self.use_variants:
+            self.mlp_variants = MLP(self.hidden_size, self.hidden_size, n_variants)
 
     def forward(
         self,
@@ -87,6 +93,7 @@ class Framework(nn.Module):
         ref_orig,
         batch_ct=None,
         batch_expr=None,
+        batch_var=None,
         patch_ids=None,
         do_st_mlp=True,
     ):
@@ -217,6 +224,13 @@ class Framework(nn.Module):
                 out_expr = m(out_expr)
             else:
                 out_expr = m(ref_weighted)
+            
+            if self.use_variants:
+                out_variants, fv_variants = self.mlp_variants(embeddings)
+                out_variants = torch.sigmoid(out_variants)
+            else:
+                out_variants = None
+                fv_variants = None
 
             # cell type groups
 
@@ -327,4 +341,6 @@ class Framework(nn.Module):
             comp_estimated,  # use_neighb
             all_area,
             patch_ids_pc,  # patch_ids
+            fv_variants,  # use_variants
+            out_variants,  # use_variants
         )
