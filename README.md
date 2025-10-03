@@ -12,22 +12,25 @@ GHIST is a deep learning-based framework that predicts spatial gene expression a
 > **Note**: A GPU with 24GB VRAM is strongly recommended for the deep learning component.
 We ran GHIST on a Linux system with a 24GB NVIDIA GeForce RTX 4090 GPU, Intel(R) Core(TM) i9-13900F CPU @ 5.60GHz with 32 threads, and 32GB RAM.
 
-1. Install [hovernet](https://github.com/vqdang/hover_net) in a separate environment  
-git clone git@github.com:vqdang/hover_net.git
-conda env create -f hover_net/environment.yml
-conda activate hovernet
-pip install torch==1.6.0 torchvision==0.7.0
-conda deactivate
-
-2. Install [GHIST](https://github.com/SydneyBioX/GHIST) in a separate environment
+1. Install [GHIST](https://github.com/SydneyBioX/GHIST)
 git clone git@github.com:josephrich98/GHIST.git
 conda create --name ghist python=3.10
 conda activate ghist
 pip install -r GHIST/requirements.txt
 
-3. Install [stainlib](https://github.com/sebastianffx/stainlib) in ghist environment
+2. Install [stainlib](https://github.com/sebastianffx/stainlib) in ghist environment
 git clone git@github.com:sebastianffx/stainlib.git
 pip install -e stainlib/
+
+3. Install [hovernet](https://github.com/vqdang/hover_net) in a separate environment  
+conda deactivate
+git clone git@github.com:vqdang/hover_net.git
+conda env create -f GHIST/environment_hovernet_3090.yml
+<!-- conda env create -f hover_net/environment.yml -->
+<!-- conda activate hovernet -->
+<!-- pip install torch==1.6.0 torchvision==0.7.0 natsort==8.2.0 -->
+<!-- conda deactivate -->
+conda activate ghist
 
 ## Varseek notebooks
 

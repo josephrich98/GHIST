@@ -12,6 +12,7 @@ import csv
 import shutil
 import cv2
 from tqdm import tqdm
+from pdb import set_trace
 
 Image.MAX_IMAGE_PIXELS = None
 
