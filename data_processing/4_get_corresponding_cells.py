@@ -9,6 +9,7 @@ import pandas as pd
 from multiprocessing import Pool, cpu_count
 import argparse
 import sys
+from pdb import set_trace
 
 
 def process_nucleus(nuc_id):
@@ -202,3 +203,41 @@ if __name__ == "__main__":
     fp_out_expr_mat = fp_cgm.replace('.csv', '_filtered.csv')
     df_expr.to_csv(fp_out_expr_mat)
     print("Saved", fp_out_expr_mat)
+
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # full set of histology nuclei
+    all_ids = set(nuc_unique_ids)
+
+    # successfully matched nuclei
+    matched_ids = set(df_match["id_histology"].astype(int).values)
+
+    # failed nuclei = all - matched
+    failed_ids = all_ids - matched_ids
+    failed_ids.discard(0)  # drop background
+
+    # make masks
+    success_mask = np.isin(seg_hist, list(matched_ids))
+    failed_mask = np.isin(seg_hist, list(failed_ids))
+
+    # plot
+    plt.figure(figsize=(10, 10))
+    plt.imshow(seg_xenium, cmap="gray")  # background Xenium segmentation
+    plt.imshow(success_mask, cmap="Greens", alpha=0.5, label="Matched")
+    plt.imshow(failed_mask, cmap="Reds", alpha=0.5, label="Failed")
+
+    # build a legend manually
+    import matplotlib.patches as mpatches
+    green_patch = mpatches.Patch(color='green', alpha=0.5, label='Matched')
+    red_patch = mpatches.Patch(color='red', alpha=0.5, label='Failed')
+    plt.legend(handles=[green_patch, red_patch], loc="upper right")
+
+    plt.axis("off")
+    plt.title("Matched vs Failed nuclei on Xenium background")
+    # plt.show()
+    fp_out_figure = os.path.join(dir_output, "matched_failed_nuclei.png")
+    plt.savefig(fp_out_figure, bbox_inches='tight', dpi=300)
+    print("Saved", fp_out_figure)
+

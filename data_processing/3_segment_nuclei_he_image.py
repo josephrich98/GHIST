@@ -18,7 +18,6 @@ Image.MAX_IMAGE_PIXELS = None
 
 
 def crop_patches(img, dir_output, crop_size, height_whole, width_whole):
-
     # Determine top left coords of crops
     height = crop_size
     width = crop_size

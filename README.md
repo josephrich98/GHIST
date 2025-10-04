@@ -28,7 +28,7 @@ git clone git@github.com:vqdang/hover_net.git
 conda env create -f GHIST/environment_hovernet_3090.yml
 <!-- conda env create -f hover_net/environment.yml -->
 <!-- conda activate hovernet -->
-<!-- pip install torch==1.6.0 torchvision==0.7.0 natsort==8.2.0 -->
+<!-- pip install torch==1.6.0 torchvision==0.7.0 natsort==8.2.0 matplotlib-inline==0.1.7 -->
 <!-- conda deactivate -->
 conda activate ghist
 
