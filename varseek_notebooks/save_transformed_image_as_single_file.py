@@ -52,8 +52,10 @@ def main():
         print(f"[INFO] Selected slice {slice_number} (highest total intensity = {highest_total})")
 
     # Extract channels for this slice
-    slices = [multi[slice_number - 1][i] for i in range(args.num_channels)]
+    slices = [multi[i] for i in range(args.num_channels)]
     rgb = np.stack(slices, axis=-1)
+
+    from pdb import set_trace; set_trace()
 
     # Determine output path
     if args.output_fp is None:

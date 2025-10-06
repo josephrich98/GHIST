@@ -3,8 +3,8 @@ import argparse
 
 def scale_landmarks(
     fp_in, fp_out,
-    small_x_mvg, small_y_mvg, big_x_mvg, big_y_mvg,
-    small_x_fix, small_y_fix, big_x_fix, big_y_fix
+    original_x_mvg, original_y_mvg, final_x_mvg, final_y_mvg,
+    original_x_fix, original_y_fix, final_x_fix, final_y_fix
 ):
     # Load the landmark file (no header, since BigWarp exports without one)
     df = pd.read_csv(fp_in, header=None)
@@ -12,15 +12,15 @@ def scale_landmarks(
     # Assign column names for clarity
     df.columns = [
         "point_id", "enabled",
-        "x_moving", "y_moving", "z_moving",
-        "x_fixed", "y_fixed", "z_fixed"
+        "x_moving", "y_moving",
+        "x_fixed", "y_fixed"
     ]
 
     # Compute scaling factors
-    scale_x_mvg = big_x_mvg / small_x_mvg
-    scale_y_mvg = big_y_mvg / small_y_mvg
-    scale_x_fix = big_x_fix / small_x_fix
-    scale_y_fix = big_y_fix / small_y_fix
+    scale_x_mvg = final_x_mvg / original_x_mvg
+    scale_y_mvg = final_y_mvg / original_y_mvg
+    scale_x_fix = final_x_fix / original_x_fix
+    scale_y_fix = final_y_fix / original_y_fix
 
     print(f"Scaling moving (x,y): {scale_x_mvg:.4f}, {scale_y_mvg:.4f}")
     print(f"Scaling fixed  (x,y): {scale_x_fix:.4f}, {scale_y_fix:.4f}")
@@ -42,20 +42,20 @@ if __name__ == "__main__":
     parser.add_argument("--fp_in", required=True, help="Input BigWarp landmark CSV")
     parser.add_argument("--fp_out", required=True, help="Output scaled landmark CSV")
 
-    parser.add_argument("--small_x_mvg", type=float, required=True)
-    parser.add_argument("--small_y_mvg", type=float, required=True)
-    parser.add_argument("--big_x_mvg", type=float, required=True)
-    parser.add_argument("--big_y_mvg", type=float, required=True)
+    parser.add_argument("--original_x_mvg", type=float, required=True)
+    parser.add_argument("--original_y_mvg", type=float, required=True)
+    parser.add_argument("--final_x_mvg", type=float, required=True)
+    parser.add_argument("--final_y_mvg", type=float, required=True)
 
-    parser.add_argument("--small_x_fix", type=float, required=True)
-    parser.add_argument("--small_y_fix", type=float, required=True)
-    parser.add_argument("--big_x_fix", type=float, required=True)
-    parser.add_argument("--big_y_fix", type=float, required=True)
+    parser.add_argument("--original_x_fix", type=float, required=True)
+    parser.add_argument("--original_y_fix", type=float, required=True)
+    parser.add_argument("--final_x_fix", type=float, required=True)
+    parser.add_argument("--final_y_fix", type=float, required=True)
 
     args = parser.parse_args()
 
     scale_landmarks(
         args.fp_in, args.fp_out,
-        args.small_x_mvg, args.small_y_mvg, args.big_x_mvg, args.big_y_mvg,
-        args.small_x_fix, args.small_y_fix, args.big_x_fix, args.big_y_fix
+        args.original_x_mvg, args.original_y_mvg, args.final_x_mvg, args.final_y_mvg,
+        args.original_x_fix, args.original_y_fix, args.final_x_fix, args.final_y_fix
     )
