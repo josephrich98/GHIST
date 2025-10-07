@@ -55,8 +55,6 @@ def main():
     slices = [multi[i] for i in range(args.num_channels)]
     rgb = np.stack(slices, axis=-1)
 
-    from pdb import set_trace; set_trace()
-
     # Determine output path
     if args.output_fp is None:
         base, ext = os.path.splitext(args.input_fp)
