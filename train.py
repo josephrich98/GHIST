@@ -219,6 +219,7 @@ def main(config):
     loss_comp_est = nn.KLDivLoss(reduction="batchmean")
     loss_comp_gt = nn.KLDivLoss(reduction="batchmean")
     loss_variants = nn.BCELoss(reduction="mean")  # for binary variants
+    loss_variants_embed = nn.CosineEmbeddingLoss(reduction="mean")
 
     # losses_names = [
     #     "loss_epoch_expr",
@@ -256,6 +257,7 @@ def main(config):
         loss_epoch_comp_est = 0
         loss_epoch_comp_gt = 0
         loss_epoch_variants = 0
+        loss_epoch_variants_embed = 0
 
         pbar = tqdm(dataloader)
         loss_total = None
@@ -295,6 +297,7 @@ def main(config):
                 comp_estimated,
                 _,
                 _,
+                fv_variants,
                 out_variants,
             ) = model(
                 batch_he_img,
@@ -402,8 +405,14 @@ def main(config):
             
             if use_variants:
                 loss_variants_val = loss_variants(out_variants, batch_var.float())
+                loss_variants_embed_val = 100 * loss_variants_embed(
+                    fv_variants,
+                    batch_var.float(),
+                    target=torch.ones(batch_var.size(0)).to(device),
+                )
             else:
                 loss_variants_val = torch.tensor(0.0).to(device)
+                loss_variants_embed_val = torch.tensor(0.0).to(device)
 
             # sum all losses
             loss = (
@@ -418,6 +427,7 @@ def main(config):
                 + loss_comp_est_val
                 + loss_comp_gt_val
                 + loss_variants_val
+                + loss_variants_embed_val
             )
 
             loss.backward()

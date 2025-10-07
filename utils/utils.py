@@ -133,3 +133,15 @@ def is_valid_positive_int(s):
         return int(s) > 0
     except ValueError:
         return False
+
+def set_seed(seed: int = 42):
+    if seed is None:
+        return
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # Ensures deterministic algorithms (may be slower)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
