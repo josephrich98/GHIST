@@ -15,6 +15,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--fastqs", required=True, nargs='+', help="path to directory of fastq files or list of fastq files")
     parser.add_argument("--technology", required=True, help="technology for varseek")
+    parser.add_argument("--cell_barcode_to_id", default=None, help="path to csv file with cell barcode to cell id mapping, with columns 'cell_barcode' and 'cell_id'")
+    parser.add_argument("--cell_gene_matrix_filtered_path", default=None, help="path to filtered cell by gene matrix csv file")
     parser.add_argument("--dir_output", default="data_processing", type=str)
     parser.add_argument("--vk_ref_dir", default="vk_ref_out", type=str, help="directory to store varseek reference files, default: vk_ref_out")
     parser.add_argument("--vk_count_dir", default="vk_count_dir", type=str, help="directory to store variant data, default: vk_count_dir")
@@ -29,6 +31,14 @@ if __name__ == "__main__":
     config = parser.parse_args()
 
     os.makedirs(config.dir_output, exist_ok=True)
+
+    cell_barcode_to_id_path = os.path.join(config.dir_output, config.cell_barcode_to_id)
+    if not os.path.exists(cell_barcode_to_id_path):
+        print("Warning: barcode to cell id mapping file not found, will keep original barcodes")
+    
+    cell_gene_matrix_filtered_path = os.path.join(config.dir_output, config.cell_gene_matrix_filtered_path)
+    if not os.path.exists(cell_gene_matrix_filtered_path):
+        print("Warning: filtered cell by gene matrix file not found, will not filter cells based on this file")
     
     if config.index is None:
         config.index = os.path.join(config.vk_ref_dir, "cosmic_cmc_index.idx")
@@ -76,6 +86,32 @@ if __name__ == "__main__":
     
     if not config.drop_empty_columns:
         adata = adata[:, np.array((adata.X != 0).sum(axis=0)).flatten() > 0]
+
+    if os.path.exists(cell_barcode_to_id_path):
+        mapping_df = pd.read_csv(cell_barcode_to_id_path, index_col=0)
+        id_map = mapping_df["cell_id_num"].to_dict()
+        adata.obs.index = adata.obs.index.map(id_map)
+        adata_shape_before = adata.shape
+        adata = adata[adata.obs.index.notna()].copy()
+        adata.obs.index = adata.obs.index.astype(int)
+        adata_shape_after = adata.shape
+        if adata_shape_after == 0:
+            raise ValueError("No cells left after mapping barcodes to cell ids, please check the barcode to cell id mapping file")
+        if adata_shape_before[0] != adata_shape_after[0]:
+            print(f"Warning: {adata_shape_before[0] - adata_shape_after[0]} cells were removed because they were not found in the barcode to cell id mapping file")
+    
+    if os.path.exists(cell_gene_matrix_filtered_path):
+        df = pd.read_csv(cell_gene_matrix_filtered_path, usecols=[0], header=None)
+        df.columns = ["id"]
+
+        # keep only rows in adata that are in df
+        adata_shape_before = adata.shape
+        adata = adata[adata.obs.index.isin(df["id"])].copy()
+        adata_shape_after = adata.shape
+        if adata_shape_after == 0:
+            raise ValueError("No cells left after filtering based on filtered cell by gene matrix, please check the filtered cell by gene matrix file")
+        if adata_shape_before[0] != adata_shape_after[0]:
+            print(f"Warning: {adata_shape_before[0] - adata_shape_after[0]} cells were removed because they were not found in the filtered cell by gene matrix file")
     
     print(f"Final shape of variant matrix: {adata.shape}")
 

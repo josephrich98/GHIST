@@ -432,12 +432,6 @@ class DataProcessing(data.Dataset):
             gt_types_pad[:n_cells] = self.df_ct.loc[patch_ids, "ct"].to_numpy() - 1
         gt_types_torch = torch.from_numpy(gt_types_pad).long()
 
-        var_pad = np.zeros((max_cells_per_patch, self.df_var.shape[1])) if self.comps_variants else None
-
-        if self.comps_variants and self.mode != "predict":
-            var = self.df_var.loc[patch_ids, :].to_numpy()
-            var_pad[:n_cells, :] = var.copy()
-
         if self.comps_variants and self.mode != "predict":
             var_pad = np.zeros((max_cells_per_patch, self.df_var.shape[1]))
             var = self.df_var.loc[patch_ids, :].to_numpy()

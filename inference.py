@@ -99,6 +99,25 @@ def main(config):
     else:
         n_ref = 0
         expr_ref_torch = None
+    
+    use_variants = opts.comps.variants
+
+    if use_variants:
+        df_var_raw = pd.read_csv(opts.data_sources_train_val.fp_variants, index_col=0)
+
+        variant_names = natsort.natsorted(df_var_raw.columns.tolist())
+
+        df_var = pd.DataFrame(0, index=df_var_raw.index, columns=variant_names)
+        for col in variant_names:
+            df_var[col] = df_var_raw[col]
+
+        n_variants = df_var.shape[1]
+        var_ref = opts.data.variant_scale * df_var.to_numpy()
+        print("Variants shape ", var_ref.shape)
+        var_ref_torch = torch.from_numpy(var_ref).float().to(device)
+    else:
+        n_variants = 0
+        var_ref_torch = None
 
     model = Framework(
         n_classes,
@@ -109,6 +128,8 @@ def main(config):
         use_avgexp,
         use_celltype,
         use_neighb,
+        use_variants,
+        n_variants=n_variants,
     )
 
     # Get list of model files
@@ -223,6 +244,7 @@ def main(config):
                 batch_n_cells,
                 batch_ct,  # val and use_celltype
                 patch_ids,
+                batch_var,  # val and use_variants
             ) in pbar:
 
                 batch_nuclei = batch_nuclei.to(device)
@@ -231,6 +253,7 @@ def main(config):
                 batch_n_cells = batch_n_cells.to(device)
                 batch_ct = batch_ct.to(device)  # all zeros placeholder if predict
                 patch_ids = patch_ids.to(device)
+                batch_var = batch_var.to(device)  # all zeros placeholder if predict
 
                 # assume no GT available, don't calculate performance
                 if config.mode == "predict":
@@ -255,6 +278,9 @@ def main(config):
                     comp_estimated,
                     batch_area,
                     patch_ids_pc,
+                    batch_var_pc,  # all zeros placeholder if predict
+                    fv_variants,
+                    out_variants,  # use_variants
                 ) = model(
                     batch_he_img,
                     batch_nuclei,
@@ -263,6 +289,8 @@ def main(config):
                     batch_ct_input,
                     batch_expr_input,
                     patch_ids=patch_ids,
+                    var_ref=var_ref_torch,
+                    batch_var=batch_var if use_variants else None,
                 )
 
                 if out_expr.shape[0] == 0:
@@ -464,6 +492,13 @@ def main(config):
                 all_expr_gt, index=all_ids, columns=gene_names
             )
 
+            if use_variants:
+                out_variants_np = out_variants.detach().cpu().numpy()
+                df_all_variants = pd.DataFrame(out_variants_np, index=all_ids, columns=variant_names)
+                fp_var_out = f"{predict_output_dir}/epoch_{predict_epoch}_variants.csv"
+                df_all_variants.to_csv(fp_var_out)
+                print(f"Saved predicted variants of {len(unique_indices)} cells to {fp_var_out}")
+
             if config.mode == "val":
 
                 print("***expression correlation***")
@@ -476,6 +511,15 @@ def main(config):
                     f1 = f1_score(all_gt_ct, all_pr_ct, average=None)
                     f1_mean = np.mean(f1)
                     all_f1_ct.append(f1_mean)
+                
+                if use_variants:
+                    # Binary (0/1) prediction vs truth
+                    preds_bin = (out_variants_np > 0.5).astype(int)
+                    gt_bin = batch_var_pc.detach().cpu().numpy()
+
+                    variant_acc = (preds_bin == gt_bin).mean()
+                    print(f"Variant prediction accuracy: {variant_acc:.4f}")
+
 
     if config.mode == "val":
         # best epoch, better performance should have lower ranks

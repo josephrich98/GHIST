@@ -104,16 +104,16 @@ def main(config):
 
         n_variants = df_var.shape[1]
 
-        # scaling (you can set opts.data.variant_scale = 1.0 if binary)
-        var_ref = opts.data.variant_scale * df_var.to_numpy()
+        # # scaling (you can set opts.data.variant_scale = 1.0 if binary)
+        # var_ref = opts.data.variant_scale * df_var.to_numpy()
 
-        print("Variants shape ", var_ref.shape)
+        # print("Variants shape ", var_ref.shape)
 
-        var_ref_torch = torch.from_numpy(var_ref).float().to(device)
+        # var_ref_torch = torch.from_numpy(var_ref).float().to(device)
 
     else:
         n_variants = 0
-        var_ref_torch = None
+        # var_ref_torch = None
 
     model = Framework(
         n_classes,
@@ -297,6 +297,7 @@ def main(config):
                 comp_estimated,
                 _,
                 _,
+                batch_var_pc,
                 fv_variants,
                 out_variants,
             ) = model(
@@ -307,7 +308,6 @@ def main(config):
                 batch_ct,
                 batch_expr,
                 batch_var,
-                var_ref_torch,
             )
 
             if batch_ct_pc.shape[0] == 0:
@@ -404,11 +404,11 @@ def main(config):
                 loss_expr_invasive_val = torch.tensor(0.0).to(device)
             
             if use_variants:
-                loss_variants_val = loss_variants(out_variants, batch_var.float())
+                loss_variants_val = loss_variants(out_variants, batch_var_pc)
                 loss_variants_embed_val = 100 * loss_variants_embed(
                     fv_variants,
-                    batch_var.float(),
-                    target=torch.ones(batch_var.size(0)).to(device),
+                    batch_var_pc,
+                    target=torch.ones(batch_var_pc.size(0)).to(device),
                 )
             else:
                 loss_variants_val = torch.tensor(0.0).to(device)
@@ -446,6 +446,8 @@ def main(config):
             loss_epoch_logits += loss_logits_val.item()
             loss_epoch_comp_est += loss_comp_est_val.item()
             loss_epoch_comp_gt += loss_comp_gt_val.item()
+            loss_epoch_variants += loss_variants_val.item()
+            loss_epoch_variants_embed += loss_variants_embed_val.item()
 
             pbar.set_description(f"loss: {loss_total:.4f}")
 
@@ -457,7 +459,7 @@ def main(config):
             )
         )
         # print(
-        #     "EXPR:{:.4f}, CT:{:.4f}, MAP:{:.4f}, EXPR_CT:{:.4f}, EXPR_IMM:{:.4f}, EXPR_INV:{:.4f}, EXPR_CT_FV:{:.4f}, EXPR_CT_LOGITS:{:.4f}, COMP_EST:{:.4f}, COMP_GT:{:.4f}".format(
+        #     "EXPR:{:.4f}, CT:{:.4f}, MAP:{:.4f}, EXPR_CT:{:.4f}, EXPR_IMM:{:.4f}, EXPR_INV:{:.4f}, EXPR_CT_FV:{:.4f}, EXPR_CT_LOGITS:{:.4f}, COMP_EST:{:.4f}, COMP_GT:{:.4f}, VARIANTS:{:.4f}, VARIANTS_EMBED:{:.4f}".format(
         #         loss_epoch_expr,
         #         loss_epoch_ct_hist,
         #         loss_epoch_map,
@@ -468,6 +470,8 @@ def main(config):
         #         loss_epoch_logits,
         #         loss_epoch_comp_est,
         #         loss_epoch_comp_gt,
+        #         loss_epoch_variants,
+        #         loss_epoch_variants_embed
         #     )
         # )
 
@@ -481,7 +485,9 @@ def main(config):
         #     loss_epoch_expr_ct_embed,
         #     loss_epoch_logits,
         #     loss_epoch_comp_est,
-        #     loss_epoch_comp_gt
+        #     loss_epoch_comp_gt,
+        #     loss_epoch_variants,
+        #     loss_epoch_variants_embed,
         # ]
 
         # df_losses.loc[epoch, :] = losses_row.copy()

@@ -147,6 +147,8 @@ class Framework(nn.Module):
                     batch_ct_pc = batch_ct[0, :n_cells_batch]
                 if batch_expr is not None:
                     batch_expr_pc = batch_expr[0, :n_cells_batch, :]
+                if batch_var is not None and batch_var.shape[-1] > 0:
+                    batch_var_pc = batch_var[0, :n_cells_batch, :]
                 if patch_ids is not None:
                     patch_ids_pc = patch_ids[0, :n_cells_batch]
 
@@ -161,6 +163,10 @@ class Framework(nn.Module):
                 if batch_expr is not None:
                     batch_expr_pc = torch.cat(
                         (batch_expr_pc, batch_expr[i_batch, :n_cells_batch, :]), 0
+                    )
+                if batch_var is not None and batch_var.shape[-1] > 0:
+                    batch_var_pc = torch.cat(
+                        (batch_var_pc, batch_var[i_batch, :n_cells_batch, :]), 0
                     )
                 if patch_ids is not None:
                     patch_ids_pc = torch.cat(
@@ -224,13 +230,6 @@ class Framework(nn.Module):
                 out_expr = m(out_expr)
             else:
                 out_expr = m(ref_weighted)
-            
-            if self.use_variants:
-                out_variants, fv_variants = self.mlp_variants(embeddings)
-                out_variants = torch.sigmoid(out_variants)
-            else:
-                out_variants = None
-                fv_variants = None
 
             # cell type groups
 
@@ -306,6 +305,22 @@ class Framework(nn.Module):
         else:
             out_cell_type_expr = None
             fv_cell_type_expr = None
+        
+        if self.use_variants:
+            out_variants, fv_variants = self.mlp_variants(embeddings)
+            out_variants = torch.sigmoid(out_variants)
+
+            # Flatten or fill in the ground-truth variants for all cells
+            if batch_var is not None:
+                # Concatenate variant tensors from each patch up to its valid cell count
+                batch_var_pc = torch.cat(
+                    [batch_var[i, :int(n_cells[i]), :] for i in range(batch_var.shape[0])],
+                    dim=0
+                )
+        else:
+            out_variants = None
+            fv_variants = None
+            batch_var_pc = None
 
         if do_st_mlp is False:
             out_cell_type_gt_expr = None
@@ -325,6 +340,9 @@ class Framework(nn.Module):
 
         if patch_ids is None:
             patch_ids_pc = None
+        
+        if batch_var is None:
+            batch_var_pc = torch.zeros(out_variants.shape).to(self.device)
 
         return (
             out_cell_type,  # use_celltype
@@ -341,6 +359,7 @@ class Framework(nn.Module):
             comp_estimated,  # use_neighb
             all_area,
             patch_ids_pc,  # patch_ids
+            batch_var_pc,  # use_variants
             fv_variants,  # use_variants
             out_variants,  # use_variants
         )
