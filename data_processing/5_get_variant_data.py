@@ -101,7 +101,7 @@ if __name__ == "__main__":
             print(f"Warning: {adata_shape_before[0] - adata_shape_after[0]} cells were removed because they were not found in the barcode to cell id mapping file")
     
     if os.path.exists(cell_gene_matrix_filtered_path):
-        df = pd.read_csv(cell_gene_matrix_filtered_path, usecols=[0], header=None)
+        df = pd.read_csv(cell_gene_matrix_filtered_path, usecols=[0])
         df.columns = ["id"]
 
         # keep only rows in adata that are in df

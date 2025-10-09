@@ -257,7 +257,7 @@ def main(config):
         loss_epoch_comp_est = 0
         loss_epoch_comp_gt = 0
         loss_epoch_variants = 0
-        loss_epoch_variants_embed = 0
+        # loss_epoch_variants_embed = 0
 
         pbar = tqdm(dataloader)
         loss_total = None
@@ -269,7 +269,7 @@ def main(config):
             batch_expr,
             batch_n_cells,
             batch_ct,
-            _,
+            patch_ids,
             batch_var,
         ) in pbar:
             optimizer.zero_grad()
@@ -405,14 +405,14 @@ def main(config):
             
             if use_variants:
                 loss_variants_val = loss_variants(out_variants, batch_var_pc)
-                loss_variants_embed_val = 100 * loss_variants_embed(
-                    fv_variants,
-                    batch_var_pc,
-                    target=torch.ones(batch_var_pc.size(0)).to(device),
-                )
+                # loss_variants_embed_val = 100 * loss_variants_embed(
+                #     fv_variants,
+                #     batch_var_pc,  # if I want to use this, then fix the fact that fv_variants=256 and batch_var_pc=n_variants
+                #     target=torch.ones(batch_var_pc.size(0)).to(device),
+                # )
             else:
                 loss_variants_val = torch.tensor(0.0).to(device)
-                loss_variants_embed_val = torch.tensor(0.0).to(device)
+                # loss_variants_embed_val = torch.tensor(0.0).to(device)
 
             # sum all losses
             loss = (
@@ -427,7 +427,7 @@ def main(config):
                 + loss_comp_est_val
                 + loss_comp_gt_val
                 + loss_variants_val
-                + loss_variants_embed_val
+                # + loss_variants_embed_val
             )
 
             loss.backward()
@@ -447,7 +447,7 @@ def main(config):
             loss_epoch_comp_est += loss_comp_est_val.item()
             loss_epoch_comp_gt += loss_comp_gt_val.item()
             loss_epoch_variants += loss_variants_val.item()
-            loss_epoch_variants_embed += loss_variants_embed_val.item()
+            # loss_epoch_variants_embed += loss_variants_embed_val.item()
 
             pbar.set_description(f"loss: {loss_total:.4f}")
 
