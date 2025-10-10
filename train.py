@@ -335,13 +335,20 @@ def main(config):
                 loss_logits_val = torch.tensor(0.0).to(device)
 
             if use_neighb:
-
-                imm_ct_idx_1 = classes.index("B")
-                imm_ct_idx_2 = classes.index("Myeloid")
-                inv_ct_idx = classes.index("Malignant")
+                # # old hard-coded way
+                # opts.immune_cts = ["B", "Myeloid"]
+                # opts.invasive_cts = ["Malignant"]
+                
+                immune_ct_indices = []
+                invasive_ct_indices = []
+                for idx, ct in enumerate(classes):
+                    if ct in opts.immune_cts:
+                        immune_ct_indices.append(idx)
+                    if ct in opts.invasive_cts:
+                        invasive_ct_indices.append(idx)
 
                 imm_mask = torch.isin(
-                    batch_ct_pc, torch.tensor([imm_ct_idx_1, imm_ct_idx_2]).to(device)
+                    batch_ct_pc, torch.tensor(immune_ct_indices).to(device)
                 )
                 imm_idx = torch.where(imm_mask)[0]
                 if imm_idx.shape[0] > 0:
@@ -351,7 +358,10 @@ def main(config):
                 else:
                     loss_expr_immune_val = torch.tensor(0.0).to(device)
 
-                inv_idx = torch.where(batch_ct_pc == inv_ct_idx)[0]
+                inv_mask = torch.isin(
+                    batch_ct_pc, torch.tensor(invasive_ct_indices).to(device)
+                )
+                inv_idx = torch.where(inv_mask)[0]
                 if inv_idx.shape[0] > 0:
                     loss_expr_invasive_val = (1 / n_classes) * loss_expr_invasive(
                         out_expr_invasive[inv_idx, :], batch_expr_pc[inv_idx, :]

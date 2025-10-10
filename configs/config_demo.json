@@ -17,6 +17,8 @@
             "Plasma",
             "T"
         ],
+        "immune_cts": ["B", "Myeloid"],
+        "invasive_cts": ["Malignant"],
         "high_conf_prob": 0.6,
         "min_nuc_area": 10,
         "expr_scale": 5.0,
