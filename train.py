@@ -336,15 +336,15 @@ def main(config):
 
             if use_neighb:
                 # # old hard-coded way
-                # opts.immune_cts = ["B", "Myeloid"]
-                # opts.invasive_cts = ["Malignant"]
+                # opts.data.immune_cts = ["B", "Myeloid"]
+                # opts.data.invasive_cts = ["Malignant"]
                 
                 immune_ct_indices = []
                 invasive_ct_indices = []
                 for idx, ct in enumerate(classes):
-                    if ct in opts.immune_cts:
+                    if ct in opts.data.immune_cts:
                         immune_ct_indices.append(idx)
-                    if ct in opts.invasive_cts:
+                    if ct in opts.data.invasive_cts:
                         invasive_ct_indices.append(idx)
 
                 imm_mask = torch.isin(

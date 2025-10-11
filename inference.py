@@ -103,6 +103,8 @@ def main(config):
     use_variants = opts.comps.variants
 
     if use_variants:
+        if not opts.data_sources_train_val.fp_variants:
+            sys.exit("Please provide data_sources_train_val.fp_variants in config file")
         df_var_raw = pd.read_csv(opts.data_sources_train_val.fp_variants, index_col=0)
 
         variant_names = natsort.natsorted(df_var_raw.columns.tolist())
@@ -289,8 +291,7 @@ def main(config):
                     batch_ct_input,
                     batch_expr_input,
                     patch_ids=patch_ids,
-                    var_ref=var_ref_torch,
-                    batch_var=batch_var if use_variants else None,
+                    batch_var=batch_var
                 )
 
                 if out_expr.shape[0] == 0:

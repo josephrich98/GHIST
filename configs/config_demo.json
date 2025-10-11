@@ -50,7 +50,8 @@
         "fp_hist": "data_demo/he_image.tif",
         "fp_expr": "data_demo/cell_gene_matrix_filtered.csv",
         "fp_cell_type": "data_demo/celltype_filtered.csv",
-        "fp_nuc_sizes": "data_demo/matched_nuclei_filtered.csv"
+        "fp_nuc_sizes": "data_demo/matched_nuclei_filtered.csv",
+        "fp_variants": false
     },
     "data_sources_predict": {
         "fp_avgexp": "data_demo/avgexp.csv",
