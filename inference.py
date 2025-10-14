@@ -42,6 +42,13 @@ def main(config):
 
     device = get_device(config.gpu_id)
 
+    if config.mode == "val":
+        opts_data_sources = opts.data_sources_train_val
+    elif config.mode == "predict":
+        opts_data_sources = opts.data_sources_predict
+    else:
+        sys.exit("Invalid --mode: choose either val or predict")
+
     # Create experiment directories
     make_new = False
     timestamp = get_experiment_id(
@@ -65,6 +72,7 @@ def main(config):
     use_avgexp = opts.comps.avgexp
     use_celltype = opts.comps.celltype
     use_neighb = opts.comps.neighb if use_celltype else False
+    use_variants = opts.comps.variants
 
     if use_celltype:
         classes = opts.data.cell_types
@@ -81,7 +89,9 @@ def main(config):
     print(f"{n_genes} genes")
 
     if use_avgexp:
-        df_ref_raw = pd.read_csv(opts.data_sources_train_val.fp_avgexp, index_col=0)
+        if not opts_data_sources.fp_avgexp:
+            sys.exit(f"Please provide {opts_data_sources}.fp_avgexp in config file")
+        df_ref_raw = pd.read_csv(opts_data_sources.fp_avgexp, index_col=0)
 
         gene_names = natsort.natsorted(
             list(set(df_ref_raw.columns.tolist()) & set(gene_names))
@@ -97,29 +107,28 @@ def main(config):
         expr_ref_torch = torch.from_numpy(expr_ref).float().to(device)
 
     else:
-        n_ref = 0
+        n_ref = None
         expr_ref_torch = None
     
-    use_variants = opts.comps.variants
-
     if use_variants:
-        if not opts.data_sources_train_val.fp_variants:
-            sys.exit("Please provide data_sources_train_val.fp_variants in config file")
-        df_var_raw = pd.read_csv(opts.data_sources_train_val.fp_variants, index_col=0)
+        if not opts_data_sources.fp_variants:
+            sys.exit(f"Please provide {opts_data_sources}.fp_variants in config file")
+        df_var_raw = pd.read_csv(opts_data_sources.fp_variants, index_col=0)
 
         variant_names = natsort.natsorted(df_var_raw.columns.tolist())
-
         df_var = pd.DataFrame(0, index=df_var_raw.index, columns=variant_names)
         for col in variant_names:
             df_var[col] = df_var_raw[col]
 
         n_variants = df_var.shape[1]
-        var_ref = opts.data.variant_scale * df_var.to_numpy()
-        print("Variants shape ", var_ref.shape)
-        var_ref_torch = torch.from_numpy(var_ref).float().to(device)
+
+        # # scaling (you can set opts.data.variant_scale = 1.0 if binary)
+        # var_ref = opts.data.variant_scale * df_var.to_numpy()
+        # print("Variants shape ", var_ref.shape)
+        # var_ref_torch = torch.from_numpy(var_ref).float().to(device)
     else:
         n_variants = 0
-        var_ref_torch = None
+        # var_ref_torch = None
 
     model = Framework(
         n_classes,
@@ -160,13 +169,6 @@ def main(config):
 
     # Dataloader
     logging.info("Preparing data")
-
-    if config.mode == "val":
-        opts_data_sources = opts.data_sources_train_val
-    elif config.mode == "predict":
-        opts_data_sources = opts.data_sources_predict
-    else:
-        sys.exit("Invalid --mode: choose either val or predict")
 
     if config.mode == "val":
         opts_regions = opts.regions_val
@@ -311,6 +313,8 @@ def main(config):
                     adjusted_out_cell_type = []
                     comp_estimated_sum = torch.zeros(n_classes).to(device)
 
+                    target_cts = list(set(opts.data.immune_cts) | set(opts.data.invasive_cts))
+
                     for i_batch in range(batch_n_cells.shape[0]):
                         n_cells_batch = int(batch_n_cells[i_batch])
 
@@ -335,12 +339,8 @@ def main(config):
                                 out_cell_type[idx_start:idx_end, :], dim=1
                             )
 
-                            ct_index_imm = [opts.data.cell_types.index("T")]
-                            high_conf_imm = torch.where(
-                                pred_logits[:, ct_index_imm] > opts.data.high_conf_prob
-                            )[0]
-                            high_conf_imm = high_conf_imm.cpu().numpy().tolist()
-
+                            high_conf_imm = get_high_conf_cts(opts, pred_logits, "high_confidence_immune_cts")
+                            
                             # cell type refinement
 
                             (
@@ -352,9 +352,11 @@ def main(config):
                                 comp_estimated[i_batch, :],
                                 comp_out_patch,
                                 opts.data.cell_types,
-                                ["B", "Myeloid", "T"],
+                                opts.data.immune_cts,
+                                target_cts=target_cts,
                                 ignore_idx=high_conf_imm,
                                 scale=config.alpha,
+                                is_invasive=config.is_invasive
                             )
 
                             # ensure consistency with expressions
@@ -367,6 +369,7 @@ def main(config):
                                 ]
 
                             if config.is_invasive:
+                                high_conf_invasive = get_high_conf_cts(opts, pred_logits, "high_confidence_invasive_cts")
 
                                 # malignant
                                 (
@@ -378,9 +381,11 @@ def main(config):
                                     comp_estimated[i_batch, :],
                                     comp_out_patch,
                                     opts.data.cell_types,
-                                    ["Malignant", "Epithelial"],
-                                    ignore_idx=[],
+                                    opts.data.invasive_cts,
+                                    target_cts=target_cts,
+                                    ignore_idx=high_conf_invasive,
                                     scale=10000,
+                                    is_invasive=config.is_invasive
                                 )
 
                                 if len(idx_swapped_invasive) > 0:
