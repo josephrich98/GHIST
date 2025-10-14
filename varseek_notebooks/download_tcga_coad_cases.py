@@ -151,12 +151,15 @@ def filter_df(df, columns_to_enforce, manifest_out, number_cases=None):
 
     return df_all
 
-def download_with_gdc_client(manifest_out, gdc_client, gdc_token, download_dir, dry_run=True):
+def download_with_gdc_client(manifest_out, gdc_client, gdc_token, download_dir, threads=2, dry_run=True, organized_dir=None):
     if os.path.isdir(download_dir) and os.listdir(download_dir):
         logger.warning(f"Download directory {download_dir} already exists and is not empty. Skipping download.")
         return
+    if organized_dir and os.path.isdir(organized_dir) and os.listdir(organized_dir):
+        logger.warning(f"Download directory {organized_dir} already exists and is not empty. Skipping download.")
+        return
 
-    gdc_command = f"{gdc_client} download -m {manifest_out} -d {download_dir}"
+    gdc_command = f"{gdc_client} download -m {manifest_out} -d {download_dir} -n {threads}"
     if gdc_token:
         gdc_command += f" --token-file {gdc_token}"
     logger.info(f"Download command: {gdc_command}")
@@ -180,7 +183,7 @@ def move_file_by_uuid(uuid, patient_id, download_dir, subdir):
         return False
 
     # Destination folder
-    dest_dir = os.path.join(organized_dir, patient_id, subdir)
+    dest_dir = os.path.join(organized_dir, patient_id, subdir, uuid)
     os.makedirs(dest_dir, exist_ok=True)
 
     for fname in files:
@@ -188,7 +191,7 @@ def move_file_by_uuid(uuid, patient_id, download_dir, subdir):
                     os.path.join(dest_dir, fname))
     return True
 
-def organize_files(df_all, download_dir, organized_dir):
+def organize_files(df_all, download_dir, organized_dir, columns_to_enforce):
     if os.path.isdir(organized_dir) and os.listdir(organized_dir):
         logger.warning(f"Organized directory {organized_dir} already exists and is not empty. Skipping reorganization.")
         return
@@ -199,17 +202,10 @@ def organize_files(df_all, download_dir, organized_dir):
     for _, row in tqdm(df_all.iterrows(), total=len(df_all), desc="Organizing files by patient"):
         pid = row["patient_id"]
 
-        for uuid in row["tissue_slide_id"].split(";"):
-            if uuid:
-                move_file_by_uuid(uuid, pid, download_dir, "tissue_slide")
-
-        for uuid in row["wxs_bam_id"].split(";"):
-            if uuid:
-                move_file_by_uuid(uuid, pid, download_dir, "wxs")
-
-        for uuid in row["rnaseq_bam_id"].split(";"):
-            if uuid:
-                move_file_by_uuid(uuid, pid, download_dir, "rnaseq")
+        for col in columns_to_enforce:
+            for uuid in row[col].split(";"):
+                if uuid:
+                    file_moved = move_file_by_uuid(uuid, pid, download_dir, col[:-3])  # remove the "_id"
 
     logger.info("✅ Files reorganized into folders by patient ID.")
 
@@ -218,6 +214,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tcga_project", type=str, default="TCGA-COAD", help="GDC project ID to query")
     parser.add_argument("--columns_to_enforce", type=str, nargs="+", default=["tissue_slide_id", "wxs_bam_id", "rnaseq_bam_id"], help="Columns that must be non-empty to include a patient for download")
+    parser.add_argument("-t", "--threads", type=int, default=2, help="threads for GDC download")
     parser.add_argument("-n", "--number_cases", type=int, default=None, help="Limit to first N cases (for testing)")
     parser.add_argument("--metadata_csv_out", type=str, default="tcga_coad_multimodal.csv", help="Output CSV file listing TCGA-COAD cases with multiple data types")
     parser.add_argument("--manifest_out", type=str, default="gdc_manifest.txt", help="Path to GDC manifest file")
@@ -241,11 +238,12 @@ if __name__ == "__main__":
     organized_dir = args.organized_dir
     columns_to_enforce = args.columns_to_enforce
     tcga_project = args.tcga_project.upper()
+    threads = args.threads
 
     df = make_metadata_df(tcga_project, metadata_csv_out, number_cases)
     df_all = filter_df(df, columns_to_enforce, manifest_out, number_cases)
-    download_with_gdc_client(manifest_out, gdc_client, gdc_token, download_dir, dry_run)    
+    download_with_gdc_client(manifest_out, gdc_client, gdc_token, download_dir, threads, dry_run, organized_dir)    
     if not dry_run:
-        organize_files(df_all, download_dir, organized_dir)
+        organize_files(df_all, download_dir, organized_dir, columns_to_enforce)
 
     logger.info("All done!")
