@@ -16,7 +16,24 @@ def create_tensors(n, predefined_value, n_ct):
         tensor += predefined_value - current_avg
 
     return tensors
+
+
+def get_high_conf_cts(opts, pred_logits, cell_type_name):
+    high_conf = []
+
+    # Get indices for all immune cell types defined in config
+    ct_indices = [
+        opts.data.cell_types.index(ct)
+        for ct in getattr(opts.data, cell_type_name, [])
+        if ct in opts.data.cell_types
+    ]
+
+    if ct_indices:
+        # Find all cells exceeding threshold for *any* immune class
+        mask = (pred_logits[:, ct_indices] > opts.data.high_conf_prob).any(dim=1)
+        high_conf = torch.where(mask)[0].cpu().numpy().tolist()
     
+    return high_conf
     
 def adjust_pr(
     out_cell_type,
@@ -24,10 +41,10 @@ def adjust_pr(
     comp_out,
     cell_types,
     cell_types_target,
+    target_cts,
     ignore_idx=None,
     scale=1.0,
     is_invasive=False,
-    target_cts=["B", "Myeloid", "Malignant"],
 ):
 
     out_cell_type_ct = torch.argmax(out_cell_type, dim=1)

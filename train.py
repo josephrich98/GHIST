@@ -106,11 +106,8 @@ def main(config):
 
         # # scaling (you can set opts.data.variant_scale = 1.0 if binary)
         # var_ref = opts.data.variant_scale * df_var.to_numpy()
-
         # print("Variants shape ", var_ref.shape)
-
         # var_ref_torch = torch.from_numpy(var_ref).float().to(device)
-
     else:
         n_variants = 0
         # var_ref_torch = None
@@ -125,7 +122,7 @@ def main(config):
         use_celltype,
         use_neighb,
         use_variants,
-        n_variants=n_variants
+        n_variants=n_variants,
     )
 
     # Dataloader
