@@ -131,4 +131,3 @@ def adjust_pr(
                     swapped_idx_target.append(index)
                                 
         return out_cell_type_final, swapped_idx, swapped_idx_target
-    
