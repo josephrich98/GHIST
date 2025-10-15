@@ -37,6 +37,7 @@ parser.add_argument("--gatk", default="gatk", help="Path to gatk executable")
 
 # Just for accuracy analysis
 parser.add_argument("--varseek_denovo_vcf", help="Path to varseek denovo vcf")
+parser.add_argument("--happy_env", default="happy", help="If using conda, name of conda environment with hap.py installed. If using docker, set to None.")
 
 
 args = parser.parse_args()
@@ -58,6 +59,7 @@ aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
 limitSjdbInsertNsj = str(args.limitSjdbInsertNsj)
 limitBAMsortRAM = str(args.limitBAMsortRAM)
 varseek_denovo_vcf = args.varseek_denovo_vcf
+happy_env = args.happy_env
 
 STAR = args.STAR
 java = args.java
@@ -131,16 +133,16 @@ download_1000_genomes_command = ["wget", "-O", f"{genomes1000_vcf}.gz", genomes1
 unzip_1000_genomes_command = ["gunzip", f"{genomes1000_vcf}.gz"]
 
 if not os.path.exists(reference_genome_fasta):
-    subprocess.run(download_reference_genome_fasta_command)
-    subprocess.run(unzip_reference_genome_fasta_command)
+    subprocess.run(download_reference_genome_fasta_command, check=True)
+    subprocess.run(unzip_reference_genome_fasta_command, check=True)
 
 if not os.path.exists(reference_genome_gtf):
-    subprocess.run(download_reference_genome_gtf_command)
-    subprocess.run(unzip_reference_genome_gtf_command)
+    subprocess.run(download_reference_genome_gtf_command, check=True)
+    subprocess.run(unzip_reference_genome_gtf_command, check=True)
 
 if not os.path.exists(genomes1000_vcf):
-    subprocess.run(download_1000_genomes_command)
-    subprocess.run(unzip_1000_genomes_command)
+    subprocess.run(download_1000_genomes_command, check=True)
+    subprocess.run(unzip_1000_genomes_command, check=True)
 
 #* STAR Build
 star_build_command = [
@@ -153,7 +155,7 @@ star_build_command = [
     "--sjdbOverhang", str(read_length_minus_one),
 ]
 if len(os.listdir(star_genome_dir)) == 0:
-    subprocess.run(star_build_command)
+    subprocess.run(star_build_command, check=True)
 
 #* Reference genome index file
 if not os.path.exists(f"{reference_genome_fasta}.fai"):
@@ -183,7 +185,7 @@ if synthetic_read_fastq2 is not None:
 if not aligned_and_unmapped_bam:
     aligned_and_unmapped_bam = f"{out_file_name_prefix}Aligned.sortedByCoord.out.bam"
 if not os.path.exists(aligned_and_unmapped_bam):
-    subprocess.run(star_align_command)
+    subprocess.run(star_align_command, check=True)
 
 #* FASTQ to SAM
 fastq_to_sam_command = [
@@ -202,7 +204,7 @@ if synthetic_read_fastq2 is not None:
 if tmp_dir:
     fastq_to_sam_command += ["-TMP_DIR", tmp_dir]
 if not os.path.exists(unmapped_bam):
-    subprocess.run(fastq_to_sam_command)
+    subprocess.run(fastq_to_sam_command, check=True)
 
 #* CreateSequenceDictionary
 create_sequence_dict_command = [
@@ -211,7 +213,7 @@ create_sequence_dict_command = [
     "-O", reference_genome_dict
 ]
 if not os.path.exists(reference_genome_dict):
-    subprocess.run(create_sequence_dict_command)
+    subprocess.run(create_sequence_dict_command, check=True)
 
 #* MergeBamAlignment
 merge_bam_alignment_command = [
@@ -227,7 +229,7 @@ merge_bam_alignment_command = [
 if tmp_dir:
     merge_bam_alignment_command += ["--TMP_DIR", tmp_dir]
 if not os.path.exists(merged_bam):
-    subprocess.run(merge_bam_alignment_command)
+    subprocess.run(merge_bam_alignment_command, check=True)
 
 #* MarkDuplicates
 mark_duplicates_command = [
@@ -241,7 +243,7 @@ mark_duplicates_command = [
 if tmp_dir:
     mark_duplicates_command += ["--TMP_DIR", tmp_dir]
 if not os.path.exists(marked_duplicates_bam):
-    subprocess.run(mark_duplicates_command)
+    subprocess.run(mark_duplicates_command, check=True)
 
 #* SplitNCigarReads
 split_n_cigar_reads_command = [
@@ -253,7 +255,7 @@ split_n_cigar_reads_command = [
 if tmp_dir:
     split_n_cigar_reads_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(split_n_cigar_reads_bam):
-    subprocess.run(split_n_cigar_reads_command)
+    subprocess.run(split_n_cigar_reads_command, check=True)
 
 #* IndexFeatureFile
 index_feature_file_command = [
@@ -261,7 +263,7 @@ index_feature_file_command = [
     "-I", genomes1000_vcf
 ]
 if not os.path.exists(f"{genomes1000_vcf}.idx"):
-    subprocess.run(index_feature_file_command)
+    subprocess.run(index_feature_file_command, check=True)
 
 #* BaseRecalibrator
 base_recalibrator_command = [
@@ -275,7 +277,7 @@ base_recalibrator_command = [
 if tmp_dir:
     base_recalibrator_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(recal_data_table):
-    subprocess.run(base_recalibrator_command)
+    subprocess.run(base_recalibrator_command, check=True)
 
 #* ApplyBQSR
 apply_bqsr_command = [
@@ -288,7 +290,7 @@ apply_bqsr_command = [
     "-O", recalibrated_bam
 ]
 if not os.path.exists(recalibrated_bam):
-    subprocess.run(apply_bqsr_command)
+    subprocess.run(apply_bqsr_command, check=True)
 
 #* AnalyzeCovariates
 analyze_covariates_command = [
@@ -297,7 +299,7 @@ analyze_covariates_command = [
     "-plots", covariates_plot
 ]
 if not os.path.exists(covariates_plot):
-    subprocess.run(analyze_covariates_command)
+    subprocess.run(analyze_covariates_command, check=True)
 
 #* Mutect2
 mutect2_command = [
@@ -314,7 +316,7 @@ if disable_tool_default_read_filters:
 if tmp_dir:
     mutect2_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(mutect2_unfiltered_vcf):
-    subprocess.run(mutect2_command)
+    subprocess.run(mutect2_command, check=True)
 
 #* FilterMutectCalls
 filter_mutect_calls_command = [
@@ -326,7 +328,7 @@ filter_mutect_calls_command = [
 if tmp_dir:
     filter_mutect_calls_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(mutect2_filtered_vcf):
-    subprocess.run(filter_mutect_calls_command)
+    subprocess.run(filter_mutect_calls_command, check=True)
 
 #* SelectVariants
 select_variants_command = [
@@ -338,7 +340,7 @@ select_variants_command = [
 if tmp_dir:
     select_variants_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(mutect2_filtered_applied_vcf):
-    subprocess.run(select_variants_command)
+    subprocess.run(select_variants_command, check=True)
 
 if skip_accuracy_analysis:
     print("Skipping accuracy analysis")
@@ -402,7 +404,7 @@ def make_normalized_vcf(test_vcf, reference_fasta):
 
     return test_vcf
 
-def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", dry_run = False, use_docker = True, output_prefix = "happy"):    
+def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", dry_run = False, use_docker = True, output_prefix = "happy", happy_env = None):
     ground_truth_vcf_dir = os.path.dirname(ground_truth_vcf)
     test_vcf_dir = os.path.dirname(test_vcf)
     reference_fasta_dir = os.path.dirname(reference_fasta)
@@ -427,6 +429,8 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
             command = f"docker run --rm -v {ground_truth_vcf_dir}:{ground_truth_vcf_dir} -v {test_vcf_dir}:{test_vcf_dir} -v {reference_fasta_dir}:{reference_fasta_dir} -v {output_dir}:{output_dir} mgibio/hap.py:v0.3.12 /opt/hap.py/bin/hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_prefix_full} {ground_truth_vcf} {test_vcf}"
         else:
             command = f"hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_prefix_full} {ground_truth_vcf} {test_vcf}"
+            if happy_env is not None:
+                command = f"conda run -n {happy_env} " + command
         if dry_run:
             print("Dry run is true. Run the following command in the terminal, or set dry_run = False:")
             print(command)
@@ -470,4 +474,4 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(output_dir, f"{output_prefix}.detailed.csv"), index=False)
 
-compare_two_vcfs_with_hap_py(ground_truth_vcf=mutect2_vcf_file, test_vcf=varseek_denovo_vcf, reference_fasta=reference_genome_fasta, output_dir = happy_out, dry_run = False)
+compare_two_vcfs_with_hap_py(ground_truth_vcf=mutect2_vcf_file, test_vcf=varseek_denovo_vcf, reference_fasta=reference_genome_fasta, output_dir=happy_out, dry_run=False, user_docker=False, happy_env=happy_env)
