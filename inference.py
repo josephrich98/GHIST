@@ -122,9 +122,6 @@ def main(config):
 
         n_variants = df_var.shape[1]
 
-        # # scaling (you can set opts.data.variant_scale = 1.0 if binary)
-        # var_ref = opts.data.variant_scale * df_var.to_numpy()
-        # print("Variants shape ", var_ref.shape)
         # var_ref_torch = torch.from_numpy(var_ref).float().to(device)
     else:
         n_variants = 0
@@ -204,6 +201,7 @@ def main(config):
 
     all_f1_ct = []
     all_corr_mean = []
+    all_f1_var = []
 
     with torch.no_grad():
 
@@ -233,6 +231,8 @@ def main(config):
             all_ids = []
             all_expr = None
             all_expr_gt = None
+            all_var = None
+            all_var_gt = None
             all_comp_est = np.zeros(
                 (n_predict_examples * opts.training.batch_size, n_classes)
             )
@@ -443,6 +443,18 @@ def main(config):
                 else:
                     all_expr = np.vstack((all_expr, out_expr))
                     all_expr_gt = np.vstack((all_expr_gt, out_expr_gt))
+                
+                # variants
+                if use_variants:
+                    out_variants_np = out_variants.detach().cpu().numpy()
+                    batch_var_pc_np = batch_var_pc.detach().cpu().numpy()
+
+                    if all_var is None:
+                        all_var = out_variants_np.copy()
+                        all_var_gt = batch_var_pc_np.copy()
+                    else:
+                        all_var = np.vstack((all_var, out_variants_np))
+                        all_var_gt = np.vstack((all_var_gt, batch_var_pc_np))
 
                 # nuclei areas
                 if all_area is None:
@@ -494,48 +506,52 @@ def main(config):
                 f"Saved predicted expressions of {len(unique_indices)} cells to {fp_expr_out}"
             )
 
-            df_all_expr_gt = pd.DataFrame(
-                all_expr_gt, index=all_ids, columns=gene_names
-            )
+            df_all_expr_gt = pd.DataFrame(all_expr_gt, index=all_ids, columns=gene_names)
 
             if use_variants:
-                out_variants_np = out_variants.detach().cpu().numpy()
-                df_all_variants = pd.DataFrame(out_variants_np, index=all_ids, columns=variant_names)
+                all_var = all_var[unique_indices, :]
+                all_var_gt = all_var_gt[unique_indices, :]
+
+                df_all_variants = pd.DataFrame(all_var, index=all_ids, columns=variant_names)
                 fp_var_out = f"{predict_output_dir}/epoch_{predict_epoch}_variants.csv"
                 df_all_variants.to_csv(fp_var_out)
                 print(f"Saved predicted variants of {len(unique_indices)} cells to {fp_var_out}")
 
-            if config.mode == "val":
+                df_all_variants_gt = pd.DataFrame(all_var_gt, index=all_ids, columns=variant_names)
 
-                print("***expression correlation***")
+            if config.mode == "val":
                 all_rowwise = df_all_expr_gt.corrwith(df_all_expr, axis=0)
                 mean_corr = np.nanmean(all_rowwise)
-                print(f"PCC mean: {mean_corr}")
+                print(f"Epoch[{predict_epoch}], PCC mean (expression correlation): {mean_corr}")
                 all_corr_mean.append(mean_corr)
 
                 if use_celltype:
                     f1 = f1_score(all_gt_ct, all_pr_ct, average=None)
                     f1_mean = np.mean(f1)
+                    print(f"Epoch[{predict_epoch}], F1 (cell types): {f1_mean}")
                     all_f1_ct.append(f1_mean)
                 
                 if use_variants:
-                    # Binary (0/1) prediction vs truth
-                    preds_bin = (out_variants_np > 0.5).astype(int)
-                    gt_bin = batch_var_pc.detach().cpu().numpy()
-
-                    variant_acc = (preds_bin == gt_bin).mean()
-                    print(f"Variant prediction accuracy: {variant_acc:.4f}")
+                    print("***variant binary F1***")
+                    f1_var = f1_score(df_all_variants_gt.values.flatten() == 1.0, df_all_variants.values.flatten() > 0.5)  # threshold if logits/probabilities
+                    f1_mean_var = np.mean(f1_var)
+                    print(f"Epoch[{predict_epoch}], F1 (variants): {f1_mean_var}")
+                    all_f1_var.append(f1_mean_var)
 
 
     if config.mode == "val":
         # best epoch, better performance should have lower ranks
         print("***best epoch***")
         rank_corr = rankdata(-np.array(all_corr_mean), method="min")
+        ranksums = rank_corr.copy()
         if use_celltype:
             rank_f1 = rankdata(-np.array(all_f1_ct), method="min")
-            ranksums = rank_f1 + rank_corr
-        else:
-            ranksums = rank_corr.copy()
+            ranksums += rank_f1
+        if use_variants:
+            rank_f1_var = rankdata(-np.array(all_f1_var), method="min")
+            if getattr(opts, "include_variants_in_best_val_epoch_selection", True):
+                ranksums += rank_f1_var
+
         best_idx = np.argmin(ranksums)
         best_epoch = saved_model_epochs[best_idx]
         print(f"PCC best epoch {best_epoch} mean {all_corr_mean[best_idx]}")

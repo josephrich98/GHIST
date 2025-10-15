@@ -118,8 +118,11 @@ def get_experiment_id(make_new, load_dir, fold_id):
         else:
             timestamp = load_dir
     else:
+        
         timestamp = (
-            "fold"
+            # load_dir
+            # + "_"
+            + "fold"
             + str(fold_id)
             + "_"
             + dt.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")

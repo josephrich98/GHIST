@@ -18,3 +18,4 @@ gdown==5.2.0
 ipykernel==6.29.5
 celltypist==1.7.1
 varseek==0.1.1
+gget==0.29.3

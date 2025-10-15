@@ -33,10 +33,12 @@ def main(config):
     else:
         make_new = True
 
-    timestamp = get_experiment_id(
-        make_new, opts.experiment_dirs.load_dir, config.fold_id
-    )
-    experiment_path = f"experiments/{timestamp}"
+    experiment_path = f"experiments/{opts.experiment_dirs.load_dir}"
+    if os.path.exists(experiment_path) and make_new:
+        timestamp = get_experiment_id(
+            make_new, opts.experiment_dirs.load_dir, config.fold_id
+        )
+        experiment_path = f"experiments/{timestamp}"
     os.makedirs(experiment_path + "/" + opts.experiment_dirs.model_dir, exist_ok=True)
 
     # Save copy of current config file
@@ -104,9 +106,6 @@ def main(config):
 
         n_variants = df_var.shape[1]
 
-        # # scaling (you can set opts.data.variant_scale = 1.0 if binary)
-        # var_ref = opts.data.variant_scale * df_var.to_numpy()
-        # print("Variants shape ", var_ref.shape)
         # var_ref_torch = torch.from_numpy(var_ref).float().to(device)
     else:
         n_variants = 0

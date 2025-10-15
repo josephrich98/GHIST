@@ -81,5 +81,6 @@
         "model_dir": "models",
         "predict_output_dir": "predict_output",
         "val_output_dir": "val_output"
-    }
+    },
+    "include_variants_in_best_val_epoch_selection": false
 }

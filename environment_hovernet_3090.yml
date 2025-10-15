@@ -2,9 +2,11 @@ name: hovernet_3090
 channels:
   - defaults
   - conda-forge
+  - bioconda
 dependencies:
   - python=3.9
   - openslide
+  - bowtie2
   - pip
   - pip:
       - docopt==0.6.2
