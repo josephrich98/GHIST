@@ -34,7 +34,7 @@ def main(config):
         make_new = True
 
     timestamp = get_experiment_id(make_new, opts.experiment_dirs.load_dir, config.fold_id, opts.experiment_dirs.run_name)
-    experiment_path += f"experiments/{opts.experiment_dirs.run_name}/{timestamp}"
+    experiment_path = f"experiments/{opts.experiment_dirs.run_name}/{timestamp}"
     os.makedirs(experiment_path + "/" + opts.experiment_dirs.model_dir, exist_ok=True)
 
     # Save copy of current config file
