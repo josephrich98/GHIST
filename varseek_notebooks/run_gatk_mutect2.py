@@ -37,7 +37,7 @@ parser.add_argument("--gatk", default="gatk", help="Path to gatk executable")
 
 # Just for accuracy analysis
 parser.add_argument("--varseek_denovo_vcf", help="Path to varseek denovo vcf")
-parser.add_argument("--happy_env", default="happy", help="If using conda, name of conda environment with hap.py installed. If using docker, set to None.")
+parser.add_argument("--happy_env", default=None, help="If using conda, name of conda environment with hap.py installed. If using docker, set to None.")
 
 
 args = parser.parse_args()

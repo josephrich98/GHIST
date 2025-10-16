@@ -48,7 +48,7 @@ def get_region_spacing(size, mode, divisions_fold):
         mask = np.isin(wp_train, wp_predict, invert=True)
         wp_train = wp_train[mask]
         return wp_train
-    else:
+    else:  # keep only val/predict points
         return wp_predict
 
 

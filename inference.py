@@ -51,10 +51,8 @@ def main(config):
 
     # Create experiment directories
     make_new = False
-    timestamp = get_experiment_id(
-        make_new, opts.experiment_dirs.load_dir, config.fold_id
-    )
-    experiment_path = f"experiments/{timestamp}"
+    timestamp = get_experiment_id(make_new, opts.experiment_dirs.load_dir, config.fold_id, opts.experiment_dirs.run_name)
+    experiment_path = f"experiments/{opts.experiment_dirs.run_name}/{timestamp}"
     model_dir = experiment_path + "/" + opts.experiment_dirs.model_dir
     if config.mode == "predict":
         predict_output_dir = (

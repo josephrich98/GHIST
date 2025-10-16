@@ -67,17 +67,20 @@
                       [0.2, 0.4],
                       [0.4, 0.6],
                       [0.6, 0.8],
-                      [0.8, 1.0]]
+                      [0.8, 1.0],
+                      [0.0, 1.0]]
     },
     "regions_predict": {
         "divisions": [[0.0, 1.0],
                       [0.0, 1.0],
                       [0.0, 1.0],
                       [0.0, 1.0],
+                      [0.0, 1.0],
                       [0.0, 1.0]]
     },
     "experiment_dirs": {
-        "load_dir": "demo",
+        "run_name": "demo",
+        "load_dir": "latest",
         "model_dir": "models",
         "predict_output_dir": "predict_output",
         "val_output_dir": "val_output"

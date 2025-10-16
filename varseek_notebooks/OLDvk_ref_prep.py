@@ -15,7 +15,7 @@ filters=(
 )
 dlist_reference_source = "t2t"
 
-data_dir = os.path.join(os.path.dirname(os.getcwd()), "data_varseek")
+data_dir = "/mnt/gpussd2/jrich/Desktop/GHIST/data_varseek"    # os.path.join(os.path.dirname(os.getcwd()), "data_varseek")
 vk_ref_dir = os.path.join(data_dir, "vk_ref_out")
 reference_dir = os.path.join(data_dir, "reference")
 
@@ -42,29 +42,27 @@ dbsnp_t2g = os.path.join(vk_ref_dir, "dbsnp_t2g.txt")
 dbsnp_reference_genome_path = os.path.join(reference_genomes_dir, "ncbi_grch38", "GCF_000001405.40_GRCh38.p14_genomic.fna")
 
 # %% [markdown]
-# # NOTE: I need to have curl >= 7.73.0 (eg conda install conda-forge::curl)
-
-# %% [markdown]
 # ## COSMIC CMC
 
 # %%
-vk.ref(
-    variants="cosmic_cmc",
-    sequences="cdna",
-    w=w,
-    k=k,
-    dlist_reference_source=dlist_reference_source,
-    filters=filters,
-    out=vk_ref_out_cosmic,
-    threads=threads,
-    index_out=cosmic_index,
-    t2g_out=cosmic_t2g,
-)
+# vk.ref(
+#     variants="cosmic_cmc",
+#     sequences="cdna",
+#     w=w,
+#     k=k,
+#     dlist_reference_source=dlist_reference_source,
+#     filters=filters,
+#     out=vk_ref_out_cosmic,
+#     threads=threads,
+#     index_out=cosmic_index,
+#     t2g_out=cosmic_t2g,
+# )
 
 # %% [markdown]
 # ## TCGA
 
 # %%
+# TCGA
 ensembl_grch37_release70_cdna_url = "https://ftp.ensembl.org/pub/release-70/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh37.70.cdna.all.fa.gz"
 tcga_url = "https://api.gdc.cancer.gov/data/1c8cfe5f-e52d-41ba-94da-f15ea1337efc"
 
@@ -123,82 +121,30 @@ vk.ref(
 # %% [markdown]
 # ## dbSNP
 
-# %%
-dbsnp_reference_genome_url = "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/110/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz"
-dbsnp_vcf_url = "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.40.gz"  # .40 = GRCh38; .25 = GRCh37
-dbsnp_tbi_url = "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.40.gz.tbi"
+# # %%
+# dbsnp_reference_genome_url = "https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/110/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz"
+# dbsnp_vcf_url = "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.40.gz"  # .40 = GRCh38; .25 = GRCh37
+# dbsnp_tbi_url = "https://ftp.ncbi.nih.gov/snp/latest_release/VCF/GCF_000001405.40.gz.tbi"
 
-if not os.path.exists(dbsnp_reference_genome_path):
-    !wget -O {dbsnp_reference_genome_path}.gz {dbsnp_reference_genome_url}
-    !gunzip {dbsnp_reference_genome_path}.gz
+# if not os.path.exists(dbsnp_reference_genome_path):
+#     !wget -O {dbsnp_reference_genome_path}.gz {dbsnp_reference_genome_url}
+#     !gunzip {dbsnp_reference_genome_path}.gz
 
-if not os.path.exists(dbsnp_vcf_path):
-    !wget -O {dbsnp_vcf_path} {dbsnp_vcf_url}
+# if not os.path.exists(dbsnp_vcf_path):
+#     !wget -O {dbsnp_vcf_path} {dbsnp_vcf_url}
 
-# %%
-vk.ref(
-    variants=dbsnp_vcf_path,
-    sequences=dbsnp_reference_genome_path,
-    w=w,
-    k=k,
-    filters=filters,
-    dlist_reference_source=dlist_reference_source,
-    out=vk_ref_out_dbsnp,
-    threads=threads,
-    index_out=dbsnp_index,
-    t2g_out=dbsnp_t2g,
-)
-
-# %% [markdown]
-# ## de novo
-
-# %%
-# conda create -n happy bioconda::hap.py
-# conda create -n bcftools python=3.10
-# conda activate bcftools
-# conda install -c conda-forge -c bioconda bowtie2 samtools bcftools star "curl>=7.73.0"
-# pip install pysam pandas gget
-
-# %%
-fastq_dir = "/home/jrich/Desktop/GHIST/data_varseek/sequencing_data_raw"
-r2_fastq_combined = "/home/jrich/Desktop/GHIST/data_varseek/sequencing_data_raw_combined/combined_2.fastq"
-reference_dir = "/home/jrich/data/reference/ensembl_grch38_release111"
-picard_jar = "/home/jrich/opt/picard.jar"
-happy_env = "happy"
-read_length = 90
-threads = 16
-
-# untested
-if not os.path.exists(r2_fastq_combined):
-    r2_fastqs = !find {fastq_dir} -type f | grep -E "${1:-.*_2\.(fq|fastq)(\.gz)?$}" | tr '\n' ' '
-    r2_fastqs = r2_fastqs[0].split()
-
-    os.makedirs(os.path.dirname(r2_fastq_combined), exist_ok=True)
-    !cat {r2_fastqs} > {r2_fastq_combined}
-
-# %%
-!build_bowtie_reference.sh \
-  -r {reference_dir}/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
-  -b {reference_dir}/bowtie_genome_index/index \
-  -f ../data_varseek/sequencing_data_raw_combined/combined_2.fastq \
-  -e 111 -s dna,gtf -t {threads} \
-  -v ./read2vcf.sh \
-  -o ../data_varseek/denovo/varseek_genomic_dna.vcf.gz \
-  -p "${1:-.*_2\.(fq|fastq)(\.gz)?$}"
-
-# %%
-!python3 run_gatk_mutect2.py \
-  --synthetic_read_fastq ../data_varseek/sequencing_data_raw_combined/combined_2.fastq \
-  --reference_genome_fasta {reference_dir}/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
-  --reference_genome_gtf {reference_dir}/Homo_sapiens.GRCh38.111.gtf \
-  --genomes1000_vcf {reference_dir}/1000GENOMES-phase_3.vcf \
-  --star_genome_dir {reference_dir}/star_genome \
-  --out ../data_varseek/denovo/mutect2_genomic_dna.vcf.gz \
-  --threads {threads} \
-  --read_length {read_length} \
-  --apply_mutation_filters \
-  --varseek_denovo_vcf ../data_varseek/denovo/varseek_genomic_dna.vcf.gz \
-  --picard_jar {picard_jar} \
-  --happy_env {happy_env}
+# # %%
+# vk.ref(
+#     variants=dbsnp_vcf_path,
+#     sequences=dbsnp_reference_genome_path,
+#     w=w,
+#     k=k,
+#     filters=filters,
+#     dlist_reference_source=dlist_reference_source,
+#     out=vk_ref_out_dbsnp,
+#     threads=threads,
+#     index_out=dbsnp_index,
+#     t2g_out=dbsnp_t2g,
+# )
 
 

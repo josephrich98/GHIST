@@ -33,12 +33,8 @@ def main(config):
     else:
         make_new = True
 
-    experiment_path = f"experiments/{opts.experiment_dirs.load_dir}"
-    if os.path.exists(experiment_path) and make_new:
-        timestamp = get_experiment_id(
-            make_new, opts.experiment_dirs.load_dir, config.fold_id
-        )
-        experiment_path = f"experiments/{timestamp}"
+    timestamp = get_experiment_id(make_new, opts.experiment_dirs.load_dir, config.fold_id, opts.experiment_dirs.run_name)
+    experiment_path += f"experiments/{opts.experiment_dirs.run_name}/{timestamp}"
     os.makedirs(experiment_path + "/" + opts.experiment_dirs.model_dir, exist_ok=True)
 
     # Save copy of current config file
