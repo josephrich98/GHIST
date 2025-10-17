@@ -37,7 +37,7 @@ parser.add_argument("--gatk", default="gatk", help="Path to gatk executable")
 
 # Just for accuracy analysis
 parser.add_argument("--varseek_denovo_vcf", help="Path to varseek denovo vcf")
-parser.add_argument("--happy_env", default=None, help="If using conda, name of conda environment with hap.py installed. If using docker, set to None.")
+parser.add_argument("--happy_env", default="happy", help="If using conda, name of conda environment with hap.py installed. If using docker, set to None.")
 
 
 args = parser.parse_args()
@@ -71,10 +71,10 @@ for name, path in {"STAR": STAR, "java": java, "picard_jar": picard_jar, "gatk":
     if not os.path.exists(path) and not shutil.which(path):
         raise FileNotFoundError(f"{name} not found or installed properly.")
 
-java_home = os.path.dirname(os.path.dirname(java))
-
-os.environ['JAVA_HOME'] = java_home
-os.environ['PATH'] = f"{os.environ['JAVA_HOME']}/bin:" + os.environ['PATH']
+if not os.environ['JAVA_HOME']:
+    java_home = os.path.dirname(os.path.dirname(java))
+    os.environ['JAVA_HOME'] = java_home
+    os.environ['PATH'] = f"{os.environ['JAVA_HOME']}/bin:" + os.environ['PATH']
 
 os.makedirs(star_genome_dir, exist_ok=True)
 
@@ -133,6 +133,7 @@ download_1000_genomes_command = ["wget", "-O", f"{genomes1000_vcf}.gz", genomes1
 unzip_1000_genomes_command = ["gunzip", f"{genomes1000_vcf}.gz"]
 
 if not os.path.exists(reference_genome_fasta):
+    # print(" ".join(download_reference_genome_fasta_command))
     subprocess.run(download_reference_genome_fasta_command, check=True)
     subprocess.run(unzip_reference_genome_fasta_command, check=True)
 

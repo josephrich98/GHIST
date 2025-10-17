@@ -145,3 +145,14 @@ def set_seed(seed: int = 42):
     # Ensures deterministic algorithms (may be slower)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+def get_run_dir_full(config_file_name, fold_id):
+    with open(f"configs/{config_file_name}", "r") as f:
+        config_data = json.load(f)
+
+    run_name = config_data["experiment_dirs"]["run_name"]
+    load_dir = config_data["experiment_dirs"]["load_dir"]
+    timestamp = get_experiment_id(make_new=False, load_dir=load_dir, fold_id=fold_id, run_name=run_name)
+
+    run_dir_full = f"experiments/{run_name}/{timestamp}"
+    return run_dir_full
