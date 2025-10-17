@@ -1,10 +1,15 @@
 import pandas as pd
 import argparse
+import tifffile
+import math
+
+
+
 
 def scale_landmarks(
     fp_in, fp_out,
-    original_x_mvg, original_y_mvg, final_x_mvg, final_y_mvg,
-    original_x_fix, original_y_fix, final_x_fix, final_y_fix
+    original_x_mvg=1, original_y_mvg=1, final_x_mvg=1, final_y_mvg=1,
+    original_x_fix=1, original_y_fix=1, final_x_fix=1, final_y_fix=1
 ):
     # Load the landmark file (no header, since BigWarp exports without one)
     df = pd.read_csv(fp_in, header=None)

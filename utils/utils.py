@@ -16,6 +16,7 @@ import scipy
 import pandas as pd
 import glob
 import h5py
+import math
 from sklearn.manifold import TSNE
 
 
@@ -156,3 +157,26 @@ def get_run_dir_full(config_file_name, fold_id):
 
     run_dir_full = f"experiments/{run_name}/{timestamp}"
     return run_dir_full
+
+
+def get_tif_dimensions(image: str) -> dict[str: int]:
+    coordinate_to_dimension_dict = {}
+    
+    with tifffile.TiffFile(image) as tif:
+        image = tif.series[0]
+        print(f"Image axes: {image.axes}, shape: {image.shape}")
+    
+    for coordinate in image.axes:
+        index = image.axes.index(coordinate)
+        coordinate_to_dimension_dict[coordinate.lower()] = image.shape[index]
+    
+    return coordinate_to_dimension_dict
+
+def determine_image_scale_factor(image_path: str, scale: int) -> tuple[dict[str: float], dict[str: float]]:
+    """
+    image_path: Path to the tif image file.
+    scale: The scale factor to apply (e.g., 2 double size, 0.5 for half size).
+    """
+    original_dimension_dict = get_tif_dimensions(image_path)
+    final_dimension_dict = {k: math.ceil(v * scale) for k, v in original_dimension_dict.items()}
+    return original_dimension_dict, final_dimension_dict
