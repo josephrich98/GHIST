@@ -23,6 +23,7 @@ parser.add_argument("--tmp_dir", default=None, help="Path to tmp folder")
 # Parameters
 parser.add_argument("--threads", default=2, help="Number of threads")
 parser.add_argument("--read_length", default=150, help="Read length")
+parser.add_argument("--ensembl_release", default=111, help="Ensembl release number")
 parser.add_argument("--limitSjdbInsertNsj", default='1000000', help="Limit SjdbInsertNsj")
 parser.add_argument("--limitBAMsortRAM", default='0', help="limitBAMsortRAM")
 parser.add_argument("--apply_mutation_filters", action="store_true", help="Use filtered vcf for accuracy analysis (otherwise use unfiltered)")
@@ -50,6 +51,7 @@ reference_genome_gtf = args.reference_genome_gtf
 genomes1000_vcf = args.genomes1000_vcf
 threads = args.threads
 read_length_minus_one = int(args.read_length) - 1
+ensembl_release = args.ensembl_release
 apply_mutation_filters = args.apply_mutation_filters
 disable_tool_default_read_filters = args.disable_tool_default_read_filters
 skip_accuracy_analysis = args.skip_accuracy_analysis
@@ -121,12 +123,12 @@ mutect2_filtered_applied_vcf = f"{mutect2_folder}/mutect2_output_filtered_applie
 reference_genome_dict = reference_genome_fasta.replace(".fa", ".dict")
 
 # commented out, as these should already be done prior to running this script
-genomes1000_vcf_url = "https://ftp.ensembl.org/pub/release-111/variation/vcf/homo_sapiens/1000GENOMES-phase_3.vcf.gz"
+genomes1000_vcf_url = f"https://ftp.ensembl.org/pub/release-{ensembl_release}/variation/vcf/homo_sapiens/1000GENOMES-phase_3.vcf.gz"
 
-download_reference_genome_fasta_command = ["gget", "ref", "-r", "111", "-d", "-od", os.path.dirname(reference_genome_fasta), "-w", "dna", "human"]
+download_reference_genome_fasta_command = ["gget", "ref", "-r", ensembl_release, "-d", "-od", os.path.dirname(reference_genome_fasta), "-w", "dna", "human"]
 unzip_reference_genome_fasta_command = ["gunzip", f"{reference_genome_fasta}.gz"]
 
-download_reference_genome_gtf_command = ["gget", "ref", "-r", "111", "-d", "-od", os.path.dirname(reference_genome_gtf), "-w", "gtf", "human"]
+download_reference_genome_gtf_command = ["gget", "ref", "-r", ensembl_release, "-d", "-od", os.path.dirname(reference_genome_gtf), "-w", "gtf", "human"]
 unzip_reference_genome_gtf_command = ["gunzip", f"{reference_genome_gtf}.gz"]
 
 download_1000_genomes_command = ["wget", "-O", f"{genomes1000_vcf}.gz", genomes1000_vcf_url]
