@@ -19,3 +19,4 @@ ipykernel==6.29.5
 celltypist==1.7.1
 varseek==0.1.1
 gget==0.29.3
+zarr==2.18.3

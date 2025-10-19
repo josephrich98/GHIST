@@ -17,6 +17,7 @@ import pandas as pd
 import glob
 import h5py
 import math
+import zarr
 from sklearn.manifold import TSNE
 
 
@@ -180,3 +181,22 @@ def determine_image_scale_factor(image_path: str, scale: int) -> tuple[dict[str:
     original_dimension_dict = get_tif_dimensions(image_path)
     final_dimension_dict = {k: math.ceil(v * scale) for k, v in original_dimension_dict.items()}
     return original_dimension_dict, final_dimension_dict
+
+def plot_downsampled(path, downsample_factor=8, title=None):
+    # Open zarr array from the TIFF file
+    z = tifffile.imread(path, aszarr=True)
+    arr = zarr.open(z, mode="r")
+
+    # Slice only every nth pixel *before* loading
+    seg = arr[::downsample_factor, ::downsample_factor]
+
+    # Convert to numpy (this triggers reading)
+    seg = seg[...]
+
+    plt.figure(figsize=(10, 10))
+    plt.imshow(seg, cmap="gray")
+    plt.axis("off")
+    if title is None:
+        title = f"{os.path.basename(path)} (downsampled {downsample_factor}×)"
+    plt.title(title)
+    plt.show()
