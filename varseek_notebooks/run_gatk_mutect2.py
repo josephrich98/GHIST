@@ -477,4 +477,4 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(output_dir, f"{output_prefix}.detailed.csv"), index=False)
 
-compare_two_vcfs_with_hap_py(ground_truth_vcf=mutect2_vcf_file, test_vcf=varseek_denovo_vcf, reference_fasta=reference_genome_fasta, output_dir=happy_out, dry_run=False, user_docker=False, happy_env=happy_env)
+compare_two_vcfs_with_hap_py(ground_truth_vcf=mutect2_vcf_file, test_vcf=varseek_denovo_vcf, reference_fasta=reference_genome_fasta, output_dir=happy_out, dry_run=False, use_docker=False, happy_env=happy_env)

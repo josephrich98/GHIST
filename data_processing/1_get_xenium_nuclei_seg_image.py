@@ -41,9 +41,7 @@ def process_patch(ws, we, df, cell_ids, max_w, max_h, dir_output):
         mask = cv2.fillPoly(mask, polygon, 255)
         img_out = np.where(mask > 0, cell, img_out)
 
-    tifffile.imwrite(
-        f"{dir_output}/xenium_nuclei_{ws}.tif", img_out, photometric="minisblack"
-    )
+    tifffile.imwrite(f"{dir_output}/xenium_nuclei_{ws}.tif", img_out, photometric="minisblack")
 
 
 def get_n_processes(config_n_processes):

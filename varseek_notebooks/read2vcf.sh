@@ -258,36 +258,35 @@ fi
 # ===============================
 # Split spliced reads (N in CIGAR)
 # ===============================
-SPLIT_BAM="${STAR_ALIGNMENT_PREFIX}split_exons.bam"
-SPLIT_SORTED_BAM="${STAR_ALIGNMENT_PREFIX}split_exons.sorted.bam"
-
 if [[ "${SPLIT_BAM_BY_N:-false}" == true ]]; then
-  SPLIT_BAM="${STAR_ALIGNMENT_PREFIX}split_exons.bam"
+  # SPLIT_BAM="${STAR_ALIGNMENT_PREFIX}split_exons.bam"
   SPLIT_SORTED_BAM="${STAR_ALIGNMENT_PREFIX}split_exons.sorted.bam"
 
   if [[ ! -f "$SPLIT_SORTED_BAM" ]]; then
     echo "Splitting spliced alignments at introns (CIGAR Ns)..."
-    samtools view -h "$OUT_BAM" \
-    | awk 'BEGIN{OFS="\t"}
-           /^@/ {print; next}
-           {
-             cigar=$6;
-             if (cigar ~ /N/) {
-               split(cigar, segs, /[0-9]+N/);
-               for (i=1; i<=length(segs); i++) {
-                 if (segs[i] != "") {
-                   $6 = segs[i];
-                   print;
-                 }
-               }
-             } else {
-               print;
-             }
-           }' \
-    | samtools view -bS -o "$SPLIT_BAM" -
+    # samtools view -h "$OUT_BAM" \
+    # | awk 'BEGIN{OFS="\t"}
+    #        /^@/ {print; next}
+    #        {
+    #          cigar=$6;
+    #          if (cigar ~ /N/) {
+    #            split(cigar, segs, /[0-9]+N/);
+    #            for (i=1; i<=length(segs); i++) {
+    #              if (segs[i] != "") {
+    #                $6 = segs[i];
+    #                print;
+    #              }
+    #            }
+    #          } else {
+    #            print;
+    #          }
+    #        }' \
+    # | samtools view -bS -o "$SPLIT_BAM" -
+    # samtools sort -@ "$THREADS" -o "$SPLIT_SORTED_BAM" "$SPLIT_BAM"
+    # samtools index -@ "$THREADS" "$SPLIT_SORTED_BAM"
 
-    samtools sort -@ "$THREADS" -o "$SPLIT_SORTED_BAM" "$SPLIT_BAM"
-    samtools index -@ "$THREADS" "$SPLIT_SORTED_BAM"
+    gatk SplitNCigarReads -R "$FASTA_REF" -I "$OUT_BAM" -O "$SPLIT_SORTED_BAM"
+
     echo "Split BAM created and indexed: $SPLIT_SORTED_BAM"
   else
     echo "Split exon BAM already exists: $SPLIT_SORTED_BAM"
@@ -313,11 +312,11 @@ bcftools mpileup \
     ${REGIONS_FILE:+-R "$REGIONS_FILE"} \
     ${DISABLE_BAQ:+-B} \
     ${SKIP_INDELS:+-I} \
+    -Ou \
     "$OUT_BAM" \
-| bcftools filter ${INCLUDE_EXPR:+-i "$INCLUDE_EXPR"} \
-| bcftools norm -f "$FASTA_REF" -c s -d all -m -any ${REGIONS_FILE:+-R "$REGIONS_FILE"} \
-| bcftools view -e 'ALT="<*>"' \
-  "$OUTPUT_TYPE" -o "$OUTPUT"
+| bcftools filter ${INCLUDE_EXPR:+-i} ${INCLUDE_EXPR:+"$INCLUDE_EXPR"} -Ou \
+| bcftools norm -f "$FASTA_REF" -c s -d all -m -any -Ou \
+| bcftools view -e 'ALT="<*>"' "$OUTPUT_TYPE" -o "$OUTPUT"
 
 # | bcftools call -m -A \
 
