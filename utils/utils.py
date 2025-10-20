@@ -200,3 +200,39 @@ def plot_downsampled(path, downsample_factor=8, title=None):
         title = f"{os.path.basename(path)} (downsampled {downsample_factor}×)"
     plt.title(title)
     plt.show()
+
+def save_avg_expression(adata, df_out, avg_expression_path, cell_type_path = None):
+    # Ensure cell IDs align
+    df_out = df_out.set_index("c_id").loc[adata.obs_names]
+
+    # Add cell type info to adata.obs
+    adata.obs["ct"] = df_out["ct"].values
+    X = adata.X
+
+    # For sparse matrices, convert to CSR for efficient indexing
+    if not isinstance(X, np.ndarray):
+        X = X.tocsr()
+
+    # Create a DataFrame of expression
+    expr_df = pd.DataFrame(X.toarray() if not isinstance(X, np.ndarray) else X,
+                        index=adata.obs_names,
+                        columns=adata.var_names)
+
+    # Add cell type column
+    expr_df["ct"] = adata.obs["ct"].values
+
+    # Group by cell type and compute mean
+    ct_means = expr_df.groupby("ct").mean(numeric_only=True)
+
+    # map cell types to integers
+    ct_to_int = {ct: i for i, ct in enumerate(ct_means.index)}
+    ct_means.index = ct_means.index.map(ct_to_int)
+
+    if cell_type_path is None:
+        cell_type_path = avg_expression_path.replace(".csv", "_celltype.csv")
+
+    mapping_df = pd.DataFrame(list(ct_to_int.items()), columns=["int_id", "cell_type"])
+    mapping_df.to_csv(cell_type_path, index=False, header=[None, "cell_type"])
+
+    ct_means.index.name = None
+    ct_means.to_csv(avg_expression_path, index=True)

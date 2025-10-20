@@ -6,6 +6,8 @@ import subprocess
 import gzip
 import pysam
 import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import LogLocator
 
 parser = argparse.ArgumentParser(description="Run GATK Mutect2 on a set of reads and report compare with hap.py")
 
@@ -17,6 +19,7 @@ parser.add_argument("--reference_genome_gtf", help="Path to reference genome GTF
 parser.add_argument("--genomes1000_vcf", default="1000GENOMES-phase_3.vcf", help="Path to 1000 genomes vcf file")
 parser.add_argument("--star_genome_dir", default="", help="Path to star_genome_dir")
 parser.add_argument("--aligned_and_unmapped_bam", default="", help="Path to aligned_and_unmapped_bam. If not provided, will be created")
+parser.add_argument("--regions", default="", help="Path to regions file used for filtering in mutect2")
 parser.add_argument("--out", default="out", help="Path to out folder")
 parser.add_argument("--tmp_dir", default=None, help="Path to tmp folder")
 
@@ -58,6 +61,7 @@ skip_accuracy_analysis = args.skip_accuracy_analysis
 synthetic_read_fastq = args.synthetic_read_fastq
 synthetic_read_fastq2 = args.synthetic_read_fastq2
 aligned_and_unmapped_bam = args.aligned_and_unmapped_bam
+regions = args.regions
 limitSjdbInsertNsj = str(args.limitSjdbInsertNsj)
 limitBAMsortRAM = str(args.limitBAMsortRAM)
 varseek_denovo_vcf = args.varseek_denovo_vcf
@@ -295,14 +299,14 @@ apply_bqsr_command = [
 if not os.path.exists(recalibrated_bam):
     subprocess.run(apply_bqsr_command, check=True)
 
-#* AnalyzeCovariates
-analyze_covariates_command = [
-    gatk, "AnalyzeCovariates",
-    "-bqsr", recal_data_table,
-    "-plots", covariates_plot
-]
-if not os.path.exists(covariates_plot):
-    subprocess.run(analyze_covariates_command, check=True)
+# #* AnalyzeCovariates
+# analyze_covariates_command = [
+#     gatk, "AnalyzeCovariates",
+#     "-bqsr", recal_data_table,
+#     "-plots", covariates_plot
+# ]
+# if not os.path.exists(covariates_plot):
+#     subprocess.run(analyze_covariates_command, check=True)
 
 #* Mutect2
 mutect2_command = [
@@ -314,6 +318,8 @@ mutect2_command = [
     "--min-base-quality-score", "10",
     "--native-pair-hmm-threads", str(threads)
 ]
+if regions:
+    mutect2_command += ["-L", regions]
 if disable_tool_default_read_filters:
     mutect2_command += ["--disable-tool-default-read-filters"]
 if tmp_dir:
@@ -355,8 +361,9 @@ mutect2_vcf_file = mutect2_filtered_applied_vcf if apply_mutation_filters else m
 mutect2_vcf_file = os.path.realpath(mutect2_vcf_file)
 
 varseek_denovo_vcf = os.path.realpath(varseek_denovo_vcf)
+varseek_denovo_vcf_filename_without_extension = os.path.basename(varseek_denovo_vcf).split(".")[0]
 
-happy_out = os.path.join(gatk_parent, "hap_py_out", "gatk_mutect2")
+happy_out = os.path.join(gatk_parent, "hap_py_out", varseek_denovo_vcf_filename_without_extension)
 happy_out = os.path.realpath(happy_out)
 
 reference_genome_fasta = os.path.realpath(reference_genome_fasta)
@@ -407,6 +414,81 @@ def make_normalized_vcf(test_vcf, reference_fasta):
 
     return test_vcf
 
+def get_dp_rd_ad(rec, prefix=""):
+    rd, *ad = rec.info.get(f"{prefix}AD") if f"{prefix}AD" in rec.info else (None, None)
+    if "DP" in rec.info:
+        dp = rec.info["DP"]
+    elif rd is not None and ad is not None:
+        ad_sum = sum(x for x in ad if isinstance(x, int))
+        dp = rd + ad_sum
+    else:
+        dp = None
+
+    ad = [str(x) for x in ad if isinstance(x, int)]
+    ad = ",".join(ad)
+    return dp, rd, ad
+
+
+
+def plot_tps_and_fps_by_ad_varseek(df, plot_out_path=None, show=False, upper_limit = 30):
+    df = df[["AD_VARSEEK", "BD"]].copy()
+
+    # --- Coerce AD_VARSEEK to integer, dropping non-convertible rows ---
+    df["AD_VARSEEK"] = pd.to_numeric(df["AD_VARSEEK"], errors="coerce")
+    df = df.dropna(subset=["AD_VARSEEK"])
+    df["AD_VARSEEK"] = df["AD_VARSEEK"].astype(int)
+
+    # --- Count TP and FP per AD_VARSEEK ---
+    result = df.groupby("AD_VARSEEK")["BD"].value_counts().unstack(fill_value=0)
+
+    # --- Ensure both TP and FP columns exist ---
+    for col in ["TP", "FP"]:
+        if col not in result.columns:
+            result[col] = 0
+    result["PPV"] = result.get("TP", 0) / (result.get("TP", 0) + result.get("FP", 0))
+
+    # --- Bin all AD_VARSEEK > upper_limit into one group ---
+    over_upper_limit = result[result.index > upper_limit].sum()
+    result = result[result.index <= upper_limit]
+    result.loc[upper_limit + 1] = over_upper_limit  # upper_limit + 1 represents the "upper_limit+" bin
+
+    # --- Sort by AD_VARSEEK ---
+    result = result.sort_index()
+
+    # --- Plot ---
+    plt.figure(figsize=(8,5))
+    plt.plot(result.index, result["TP"], label="TP", color="green", marker="o")
+    plt.plot(result.index, result["FP"], label="FP", color="red", marker="o")
+    plt.plot(result.index, result["PPV"] * 100, label="PPV (*100)", color="black", marker="o", linestyle="--")
+
+    # Replace tick label for upper_limit + 1 → "upper_limit+"
+    xticks = list(result.index)
+    xticklabels = [str(x) if x != upper_limit + 1 else f"{upper_limit+1}+" for x in xticks]
+    plt.xticks(xticks, xticklabels, rotation=45)
+
+    ymax = result[["TP", "FP"]].values.max()  # max value across both series
+    plt.yscale("symlog", linthresh=10)  # Linear near 0, log for larger counts
+    plt.ylim(bottom=0, top=ymax * 1.3)  # clip anything below 0
+    plt.xlabel("AD_VARSEEK (Allelic Depth)")
+    plt.ylabel("Count")
+
+    # --- Add minor ticks every factor of 10 ---
+    ax = plt.gca()
+    ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(1.0, 10.0) * 0.1, numticks=100))
+    ax.yaxis.set_minor_formatter(plt.NullFormatter())  # hide labels for minor ticks
+
+    plt.title("TP vs FP Counts by AD_VARSEEK (binned, symlog scale)")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    if show:
+        plt.show()
+    if plot_out_path:
+        plt.savefig(plot_out_path)
+        print(f"Plot saved to {plot_out_path}")
+    plt.close()
+
+
 def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, output_dir = ".", dry_run = False, use_docker = True, output_prefix = "happy", happy_env = None):
     ground_truth_vcf_dir = os.path.dirname(ground_truth_vcf)
     test_vcf_dir = os.path.dirname(test_vcf)
@@ -440,41 +522,53 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
             return
         else:
             subprocess.run(command, shell=True, check=True)
-                
-    # Step 1: Load happy.vcf.gz (annotated VCF)
+    
+    summary_df = pd.read_csv(summary_csv_path)
+
+    mutect2_total = summary_df.iloc[1]["TRUTH.TOTAL"] + summary_df.iloc[3]["TRUTH.TOTAL"]
+    varseek_total = summary_df.iloc[1]["QUERY.TOTAL"] + summary_df.iloc[3]["QUERY.TOTAL"]
+
+    tp = summary_df.iloc[1]["TRUTH.TP"] + summary_df.iloc[3]["TRUTH.TP"]
+    fn = summary_df.iloc[1]["TRUTH.FN"] + summary_df.iloc[3]["TRUTH.FN"]
+    fp = summary_df.iloc[1]["QUERY.FP"] + summary_df.iloc[3]["QUERY.FP"]
+
+    print(f"Mutect2 total variants: {mutect2_total}")
+    print(f"varseek total variants: {varseek_total}")
+    print(f"True Positives (in both mutect2 and varseek): {tp}")
+    print(f"False Negatives (in mutect2 but not varseek): {fn}")
+    print(f"False Positives (in varseek but not mutect2): {fp}")
+    print(f"Sensitivity (TP / (TP + FN)): {tp / (tp + fn) if (tp + fn) > 0 else 0:.4f}")
+    print(f"PPV (TP / (TP + FP)): {tp / (tp + fp) if (tp + fp) > 0 else 0:.4f}")
+
     happy_vcf = pysam.VariantFile(os.path.join(output_dir, f"{output_prefix}.vcf.gz"))
-
-    # Step 2: Load original VCF (with IDs)
-    orig_vcf = pysam.VariantFile(ground_truth_vcf)
-
-    # Step 3: Build a lookup dictionary from original VCF
-    orig_lookup = {}
-    for rec in orig_vcf.fetch():
-        key = (rec.contig, rec.pos, rec.ref, tuple(rec.alts))
-        orig_lookup[key] = rec.id
-
-    # Step 4: Collect IDs based on TP and FN
+    
     rows = []
     for rec in happy_vcf.fetch():
         for sample in rec.samples.values():
             bd = sample.get("BD")
-            key = (rec.contig, rec.pos, rec.ref, tuple(rec.alts))
-            match_id = orig_lookup.get(key)
-            if not match_id:
+            if bd == ".":
                 continue
+            
+            dp_mutect2, rd_mutect2, ad_mutect2 = get_dp_rd_ad(rec, prefix="")
+            dp_varseek, rd_varseek, ad_varseek = get_dp_rd_ad(rec, prefix="QUERY_")
+            
             rows.append({
-                "ID": match_id,
                 "CHROM": rec.contig,
                 "POS": rec.pos,
                 "REF": rec.ref,
                 "ALT": ",".join(rec.alts),
                 "BD": bd,
-                "DP": rec.info.get("QUERY_DP"),
-                "RD": rec.info.get("QUERY_RD", None),
-                "AD": rec.info.get("QUERY_AD", None),
+                "DP_MUTECT2": dp_mutect2,
+                "RD_MUTECT2": rd_mutect2,
+                "AD_MUTECT2": ad_mutect2,
+                "DP_VARSEEK": dp_varseek,
+                "RD_VARSEEK": rd_varseek,
+                "AD_VARSEEK": ad_varseek,
+                "ID": rec.id,
             })
-    
+
     df = pd.DataFrame(rows)
+    plot_tps_and_fps_by_ad_varseek(df, plot_out_path=os.path.join(output_dir, f"{output_prefix}_tp_fp_by_ad_varseek.png"), upper_limit=30)
     df.to_csv(os.path.join(output_dir, f"{output_prefix}.detailed.csv"), index=False)
 
 compare_two_vcfs_with_hap_py(ground_truth_vcf=mutect2_vcf_file, test_vcf=varseek_denovo_vcf, reference_fasta=reference_genome_fasta, output_dir=happy_out, dry_run=False, use_docker=False, happy_env=happy_env)

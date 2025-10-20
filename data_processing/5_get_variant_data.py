@@ -115,6 +115,10 @@ if __name__ == "__main__":
     
     print(f"Final shape of variant matrix: {adata.shape}")
 
+    for percentage in [1, 5, 10, 25, 50]:
+        gene_mask = (np.count_nonzero(adata.X.toarray() if hasattr(adata.X, "toarray") else adata.X, axis=0) >= percentage/100 * adata.n_obs)
+        print(gene_mask.sum(), f"genes have nonzero counts in at least {percentage}% of cells")
+
     # Convert to DataFrame
     df = pd.DataFrame(
         adata.X.toarray() if not isinstance(adata.X, pd.DataFrame) else adata.X,

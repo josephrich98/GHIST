@@ -25,6 +25,7 @@ LIMIT_BAM_SORT_RAM=0
 STAR_ALIGNMENT_PREFIX="star_"
 ENSEMBL_RELEASE=111
 REFERENCE_SOURCE=dna,gtf
+TMP_DIR="/tmp"
 
 # Helper
 usage() {
@@ -45,6 +46,7 @@ Options:
   --read-length INT      read length
   --star-alignment-prefix PREFIX    prefix for STAR output BAM
   --ensembl-release INT  Ensembl release number (default: 111)
+  --tmp-dir DIR          Temporary directory (default: /tmp)
   -h, --help             Show this help
 
 Positional arguments:
@@ -112,6 +114,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ensembl-release)
       ENSEMBL_RELEASE="$2"
+      shift 2
+      ;;
+    --tmp-dir)
+      TMP_DIR="$2"
       shift 2
       ;;
     -h|--help)
@@ -285,7 +291,7 @@ if [[ "${SPLIT_BAM_BY_N:-false}" == true ]]; then
     # samtools sort -@ "$THREADS" -o "$SPLIT_SORTED_BAM" "$SPLIT_BAM"
     # samtools index -@ "$THREADS" "$SPLIT_SORTED_BAM"
 
-    gatk SplitNCigarReads -R "$FASTA_REF" -I "$OUT_BAM" -O "$SPLIT_SORTED_BAM"
+    gatk SplitNCigarReads -R "$FASTA_REF" -I "$OUT_BAM" -O "$SPLIT_SORTED_BAM" --tmp-dir "$TMP_DIR" --create-output-bam-index
 
     echo "Split BAM created and indexed: $SPLIT_SORTED_BAM"
   else
@@ -305,6 +311,7 @@ echo "Processing with bcftools mpileup + filter..."
 
 bcftools mpileup \
     --threads "$THREADS" \
+    -A \
     -f "$FASTA_REF" \
     -a INFO/AD \
     -Q 0 \
@@ -314,10 +321,9 @@ bcftools mpileup \
     ${SKIP_INDELS:+-I} \
     -Ou \
     "$OUT_BAM" \
+# | bcftools call -m -A -v -Ou \
 | bcftools filter ${INCLUDE_EXPR:+-i} ${INCLUDE_EXPR:+"$INCLUDE_EXPR"} -Ou \
 | bcftools norm -f "$FASTA_REF" -c s -d all -m -any -Ou \
 | bcftools view -e 'ALT="<*>"' "$OUTPUT_TYPE" -o "$OUTPUT"
-
-# | bcftools call -m -A \
 
 echo "Program complete. VCF output written to $OUTPUT"
