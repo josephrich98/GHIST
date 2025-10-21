@@ -226,6 +226,8 @@ if [[ -n "$FASTQ1" ]]; then
   # Build index if needed
   if [[ ! -f "${REF_INDEX}.1.bt2" ]]; then
     echo "Bowtie2 index not found, building..."
+    BOWTIE_INDEX_DIR=$(dirname "$REF_INDEX")
+    mkdir -p "$BOWTIE_INDEX_DIR"
     bowtie2-build "$FASTA_REF" "$REF_INDEX"
   fi
 
@@ -314,6 +316,8 @@ for INPUT in "${ARGS[@]}"; do
       fi
       if [[ ! -f "${REF_INDEX}.1.bt2" ]]; then
         echo "Bowtie2 index not found, building..."
+        BOWTIE_INDEX_DIR=$(dirname "$REF_INDEX")
+        mkdir -p "$BOWTIE_INDEX_DIR"
         bowtie2-build "$FASTA_REF" "$REF_INDEX"
       fi
       FASTQ_INPUTS+=("$INPUT")
