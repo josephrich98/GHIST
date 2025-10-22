@@ -33,7 +33,7 @@ if __name__ == "__main__":
     parser.add_argument("--min_counts", default=3, type=int, help="min counts for varseek count")
     parser.add_argument("--disable_use_binary_matrix", action="store_false", help="whether to use binary matrix for varseek count (default: use binary matrix)")
     parser.add_argument("--disable_drop_empty_columns", action="store_false", help="whether to drop empty columns for varseek count (default: drop empty columns)")
-    parser.add_argument("--n_processes", default=24, type=int, help="max number of cpus to use")
+    parser.add_argument("--n_processes", default=4, type=int, help="max number of cpus to use")
 
     config = parser.parse_args()
 
@@ -51,6 +51,19 @@ if __name__ == "__main__":
         config.index = os.path.join(config.vk_ref_dir, "vcrs_index.idx")
     if config.t2g is None:
         config.t2g = os.path.join(config.vk_ref_dir, "vcrs_t2g_filtered.txt")
+    
+    if os.path.isdir(config.fastqs[0]):
+        if len(config.fastqs) > 1:
+            raise ValueError("If --fastqs is a directory, only provide one directory")
+        config.fastqs = config.fastqs[0]
+        
+    if isinstance(config.fastqs, str):
+        if not os.path.exists(config.fastqs) or len(os.listdir(config.fastqs)) == 0:
+            raise ValueError(f"Please make sure the fastq files are in {config.fastqs}")
+    elif isinstance(config.fastqs, list):
+        for fastq in config.fastqs:
+            if not os.path.exists(fastq):
+                raise ValueError(f"Please make sure the fastq file {fastq} exists")
 
     if not os.path.exists(config.index) or not os.path.exists(config.t2g):
         if not os.path.exists(config.preliminary_variants_vcf):
@@ -75,6 +88,7 @@ if __name__ == "__main__":
                 "--fasta-ref", config.fasta_ref,
                 "-x", config.bowtie_index,
                 "--ensembl-release", str(config.ensembl_release),
+                "--strip-version-numbers",
                 "--output", config.preliminary_variants_vcf,
             ]
 
@@ -86,8 +100,6 @@ if __name__ == "__main__":
 
             # Run it
             subprocess.run(cmd, check=True)
-
-            #!!!!! insert post-processing of VCF here if needed !!!!!#
         
         print("Building varseek reference index de novo...")
         vk.ref(
@@ -95,25 +107,13 @@ if __name__ == "__main__":
             sequences=config.fasta_ref,
             w=config.w,
             k=config.k,
+            filters=["alignment_to_reference_cdna:is_not_true"],
             dlist_reference_source="t2t",
             out=config.vk_ref_dir,
             threads=config.n_processes,
             index_out=config.index,
             t2g_out=config.t2g,
         )
-    
-    if os.path.isdir(config.fastqs[0]):
-        if len(config.fastqs) > 1:
-            raise ValueError("If --fastqs is a directory, only provide one directory")
-        config.fastqs = config.fastqs[0]
-        
-    if isinstance(config.fastqs, str):
-        if not os.path.exists(config.fastqs) or len(os.listdir(config.fastqs)) == 0:
-            raise ValueError(f"Please make sure the fastq files are in {config.fastqs}")
-    elif isinstance(config.fastqs, list):
-        for fastq in config.fastqs:
-            if not os.path.exists(fastq):
-                raise ValueError(f"Please make sure the fastq file {fastq} exists")
     
     if os.path.exists(config.vk_count_dir) and len(os.listdir(config.vk_count_dir)) > 0:
         print(f"vk count output directory {config.vk_count_dir} already exists and is not empty, skipping vk count")
@@ -170,8 +170,8 @@ if __name__ == "__main__":
     print(f"Final shape of variant matrix: {adata.shape}")
 
     for percentage in [1, 5, 10, 25, 50]:
-        gene_mask = (np.count_nonzero(adata.X.toarray() if hasattr(adata.X, "toarray") else adata.X, axis=0) >= percentage/100 * adata.n_obs)
-        print(gene_mask.sum(), f"genes have nonzero counts in at least {percentage}% of cells")
+        variant_mask = (np.count_nonzero(adata.X.toarray() if hasattr(adata.X, "toarray") else adata.X, axis=0) >= percentage/100 * adata.n_obs)
+        print(variant_mask.sum(), f"variants have nonzero counts in at least {percentage}% of cells")
 
     # Convert to DataFrame
     df = pd.DataFrame(

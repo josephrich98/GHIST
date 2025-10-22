@@ -15,9 +15,11 @@ REF_INDEX=""
 SEED_LENGTH=""  # bowtie -L
 SCORE_MIN=""     # bowtie --score-min
 OUTPUT="out.vcf.gz"
-INCLUDE_EXPR="INFO/AD[1] >= 3"
+MIN_COUNTS=3
+INCLUDE_EXPR=""
 SKIP_INDELS=""
 DISABLE_BAQ=""
+STRIP_VERSION_NUMBERS=""
 FASTQ1=""
 FASTQ2=""
 OUT_BAM_DIR=""
@@ -36,9 +38,11 @@ Options:
   -f, --fasta-ref FILE   Reference fasta file (required)
   -x REF_INDEX_BASENAME  Bowtie2 index basename (required if FASTQ inputs)
   -o, --output FILE      Output VCF (default: out.vcf.gz)
+  --min-counts INT       Minimum count threshold for filtering (default: 3)
   -i, --include EXPR     bcftools filter expression (default: 'INFO/AD[1] >= 3')
   -I, --skip-indels      Skip indels in the output
   --disable-baq          Disable BAQ computation in mpileup
+  --strip-version-numbers Strip version numbers from reference sequence names
   -1 FILE                Paired-end FASTQ read 1
   -2 FILE                Paired-end FASTQ read 2
   --out-bam-dir DIR      Directory to write output BAM files (default: directory of first FASTQ)
@@ -87,6 +91,10 @@ while [[ $# -gt 0 ]]; do
       OUTPUT="$2"
       shift 2
       ;;
+    --min-counts)
+      MIN_COUNTS="$2"
+      shift 2
+      ;;
     -i|--include)
       INCLUDE_EXPR="$2"
       shift 2
@@ -97,6 +105,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --disable-baq)
       DISABLE_BAQ=1
+      shift
+      ;;
+    --strip-version-numbers)
+      STRIP_VERSION_NUMBERS=1
       shift
       ;;
     -1)
@@ -191,7 +203,7 @@ if [[ -n "$REGIONS_FILE" && ! -f "$REGIONS_FILE" ]]; then
   exit 1
 fi
 
-if [[ "$INCLUDE_EXPR" == "INFO/AD[1] >= 1" || -z "$INCLUDE_EXPR" ]]; then
+if (( MIN_COUNTS == 0 || MIN_COUNTS == 1 )); then
   echo "Warning: filtering by a minimum count threshold is highly recommended."
   echo "Additionally, indels observed once will not be output regardless of settings (bcftools mpileup behavior)."
 fi
@@ -425,20 +437,68 @@ echo "Processing with bcftools mpileup + filter..."
 # echo "Output: $OUTPUT ($OUTPUT_TYPE)"
 # echo "Filter expression: ${INCLUDE_EXPR:-None}"
 
-bcftools mpileup \
-    --threads "$THREADS" \
+cmd="bcftools mpileup \
+    --threads \"$THREADS\" \
     -A \
-    -f "$FASTA_REF" \
+    -f \"$FASTA_REF\" \
     -a INFO/AD \
     -Q 0 \
     -d 10000 \
     ${DISABLE_BAQ:+-B} \
     ${SKIP_INDELS:+-I} \
-    -Ou \
-    "${INPUT_BAMS[@]}" \
-# | bcftools call -m -A -v -Ou \
-| bcftools filter ${INCLUDE_EXPR:+-i} ${INCLUDE_EXPR:+"$INCLUDE_EXPR"} -Ou \
-| bcftools norm -f "$FASTA_REF" -c s -d all -m -any -Ou \
-| bcftools view -e 'ALT="<*>"' "$OUTPUT_TYPE" -o "$OUTPUT"
+    -Ou ${INPUT_BAMS[@]}"
+
+# Conditionally filter
+if (( MIN_COUNTS > 1 )) || [[ -n "$INCLUDE_EXPR" ]]; then
+    if [[ -n "$INCLUDE_EXPR" ]]; then
+        # both INCLUDE_EXPR and MIN_COUNTS filters
+        cmd+=" | bcftools filter -i \"(${INCLUDE_EXPR}) && (INFO/AD[1] >= $MIN_COUNTS)\" -Ou"
+    else
+        # only MIN_COUNTS filter
+        cmd+=" | bcftools filter -i \"INFO/AD[1] >= $MIN_COUNTS\" -Ou"
+    fi
+fi
+
+# cmd+=" | bcftools call -m -A -v -Ou"
+
+# Always normalize
+cmd+=" | bcftools norm -f \"$FASTA_REF\" -c s -d all -m -any -Ou"
+
+# Conditionally filter again - I filter before normalization to speed up the process, but I need to filter again after normalization to be accurate (AD values may have changed)
+if (( MIN_COUNTS > 1 )) || [[ -n "$INCLUDE_EXPR" ]]; then
+    if [[ -n "$INCLUDE_EXPR" ]]; then
+        # both INCLUDE_EXPR and MIN_COUNTS filters
+        cmd+=" | bcftools filter -i \"(${INCLUDE_EXPR}) && (INFO/AD[1] >= $MIN_COUNTS)\" -Ou"
+    else
+        # only MIN_COUNTS filter
+        cmd+=" | bcftools filter -i \"INFO/AD[1] >= $MIN_COUNTS\" -Ou"
+    fi
+fi
+
+# Finally, view/output
+cmd+=" | bcftools view -e 'ALT=\"<*>\"' \"$OUTPUT_TYPE\" -o \"$OUTPUT\""
+
+# Run it
+echo "$cmd"
+eval "$cmd"
+
+# Strip version numbers (e.g. ENST00000488147.2 -> ENST00000488147)
+if [[ -n "$STRIP_VERSION_NUMBERS" ]]; then
+  if [[ "$OUTPUT_TYPE" == "-Oz" ]]; then
+      # compressed .vcf.gz
+      tmp_file=$(mktemp)
+      zcat "$OUTPUT" \
+      | awk 'BEGIN{OFS="\t"} {sub(/\.[0-9]+$/, "", $1); print}' \
+      | bgzip > "$tmp_file"
+      mv "$tmp_file" "$OUTPUT"
+  else
+      # uncompressed .vcf
+      tmp_file=$(mktemp)
+      awk 'BEGIN{OFS="\t"} {sub(/\.[0-9]+$/, "", $1); print}' "$OUTPUT" > "$tmp_file"
+      mv "$tmp_file" "$OUTPUT"
+  fi
+fi
+# Index the VCF
+bcftools index -f --threads "$THREADS" "$OUTPUT"
 
 echo "Program complete. VCF output written to $OUTPUT"

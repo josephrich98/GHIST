@@ -13,7 +13,8 @@ THREADS=1
 FASTA_REF=""
 STAR_GENOME_DIR="star_genome_index"
 OUTPUT="out.vcf.gz"
-INCLUDE_EXPR="INFO/AD[1] >= 3"
+MIN_COUNTS=3
+INCLUDE_EXPR=""
 SKIP_INDELS=""
 DISABLE_BAQ=""
 SPLIT_BAM_BY_N=false
@@ -37,6 +38,7 @@ Options:
   -f, --fasta-ref FILE   Reference fasta file (required)
   -x, --star-genome-dir DIR  STAR index directory (required if FASTQ inputs)
   -o, --output FILE      Output VCF (default: out.vcf.gz)
+  --min-counts INT       Minimum count threshold for filtering (default: 3)
   -i, --include EXPR     bcftools filter expression (default: 'INFO/AD[1] >= 3')
   -I, --skip-indels      Skip indels in the output
   --disable-baq          Disable BAQ computation in mpileup
@@ -78,6 +80,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -o|--output)
       OUTPUT="$2"
+      shift 2
+      ;;
+    --min-counts)
+      MIN_COUNTS="$2"
       shift 2
       ;;
     -i|--include)
@@ -176,7 +182,7 @@ if [[ -n "$REGIONS_FILE" && ! -f "$REGIONS_FILE" ]]; then
   exit 1
 fi
 
-if [[ "$INCLUDE_EXPR" == "INFO/AD[1] >= 1" || -z "$INCLUDE_EXPR" ]]; then
+if (( MIN_COUNTS == 0 || MIN_COUNTS == 1 )); then
   echo "Warning: filtering by a minimum count threshold is highly recommended."
   echo "Additionally, indels observed once will not be output regardless of settings (bcftools mpileup behavior)."
 fi
@@ -309,21 +315,51 @@ echo "Processing with bcftools mpileup + filter..."
 # echo "Output: $OUTPUT ($OUTPUT_TYPE)"
 # echo "Filter expression: ${INCLUDE_EXPR:-None}"
 
-bcftools mpileup \
-    --threads "$THREADS" \
+cmd="bcftools mpileup \
+    --threads \"$THREADS\" \
     -A \
-    -f "$FASTA_REF" \
+    -f \"$FASTA_REF\" \
     -a INFO/AD \
     -Q 0 \
     -d 10000 \
-    ${REGIONS_FILE:+-R "$REGIONS_FILE"} \
+    ${REGIONS_FILE:+-R \"$REGIONS_FILE\"} \
     ${DISABLE_BAQ:+-B} \
     ${SKIP_INDELS:+-I} \
-    -Ou \
-    "$OUT_BAM" \
-# | bcftools call -m -A -v -Ou \
-| bcftools filter ${INCLUDE_EXPR:+-i} ${INCLUDE_EXPR:+"$INCLUDE_EXPR"} -Ou \
-| bcftools norm -f "$FASTA_REF" -c s -d all -m -any -Ou \
-| bcftools view -e 'ALT="<*>"' "$OUTPUT_TYPE" -o "$OUTPUT"
+    -Ou \"$OUT_BAM\""
+
+# Conditionally filter
+if (( MIN_COUNTS > 1 )) || [[ -n "$INCLUDE_EXPR" ]]; then
+    if [[ -n "$INCLUDE_EXPR" ]]; then
+        # both INCLUDE_EXPR and MIN_COUNTS filters
+        cmd+=" | bcftools filter -i \"(${INCLUDE_EXPR}) && (INFO/AD[1] >= $MIN_COUNTS)\" -Ou"
+    else
+        # only MIN_COUNTS filter
+        cmd+=" | bcftools filter -i \"INFO/AD[1] >= $MIN_COUNTS\" -Ou"
+    fi
+fi
+
+# cmd+=" | bcftools call -m -A -v -Ou"
+
+# Always normalize
+cmd+=" | bcftools norm -f \"$FASTA_REF\" -c s -d all -m -any -Ou"
+
+# Conditionally filter again - I filter before normalization to speed up the process, but I need to filter again after normalization to be accurate (AD values may have changed)
+if (( MIN_COUNTS > 1 )) || [[ -n "$INCLUDE_EXPR" ]]; then
+    if [[ -n "$INCLUDE_EXPR" ]]; then
+        # both INCLUDE_EXPR and MIN_COUNTS filters
+        cmd+=" | bcftools filter -i \"(${INCLUDE_EXPR}) && (INFO/AD[1] >= $MIN_COUNTS)\" -Ou"
+    else
+        # only MIN_COUNTS filter
+        cmd+=" | bcftools filter -i \"INFO/AD[1] >= $MIN_COUNTS\" -Ou"
+    fi
+fi
+
+# Finally, view/output
+cmd+=" | bcftools view -e 'ALT=\"<*>\"' \"$OUTPUT_TYPE\" -o \"$OUTPUT\""
+
+# Run it
+echo "$cmd"
+eval "$cmd"
+bcftools index -f --threads "$THREADS" "$OUTPUT"
 
 echo "Program complete. VCF output written to $OUTPUT"

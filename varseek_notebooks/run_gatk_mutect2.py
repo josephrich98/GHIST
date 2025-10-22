@@ -7,6 +7,10 @@ import gzip
 import pysam
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+from pathlib import Path
+from collections import defaultdict
+import bisect
 from matplotlib.ticker import LogLocator
 
 parser = argparse.ArgumentParser(description="Run GATK Mutect2 on a set of reads and report compare with hap.py")
@@ -42,6 +46,7 @@ parser.add_argument("--gatk", default="gatk", help="Path to gatk executable")
 # Just for accuracy analysis
 parser.add_argument("--varseek_denovo_vcf", help="Path to varseek denovo vcf")
 parser.add_argument("--happy_env", default="happy", help="If using conda, name of conda environment with hap.py installed. If using docker, set to None.")
+parser.add_argument("--conda", default="conda", help="full conda path")
 
 
 args = parser.parse_args()
@@ -339,6 +344,60 @@ if tmp_dir:
 if not os.path.exists(mutect2_filtered_vcf):
     subprocess.run(filter_mutect_calls_command, check=True)
 
+human_chromosomes = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "X", "Y", "MT"}
+
+def make_chrom_to_positions_dict(gtf, feature="exon"):
+    if isinstance(gtf, (str, Path)) and ".gtf" in gtf:
+        gtf_cols = ["chromosome", "source", "feature", "start", "end", "score", "strand", "frame", "attributes"]
+        gtf_df = pd.read_csv(gtf, sep="\t", comment="#", names=gtf_cols)
+    elif isinstance(gtf, pd.DataFrame):
+        gtf_df = gtf.copy()
+    else:
+        raise ValueError("gtf must be a df or path to gtf file") 
+
+    gtf_df["chromosome"] = gtf_df["chromosome"].astype(str)
+    gtf_df = gtf_df.loc[(gtf_df['feature'] == feature) & (gtf_df['chromosome'].isin(human_chromosomes)), ["chromosome", "start", "end"]].reset_index(drop=True)
+
+    chrom_to_positions: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for chromosome, start, end in zip(gtf_df["chromosome"], gtf_df["start"], gtf_df["end"]):
+        chrom_to_positions[str(chromosome)].append((int(start), int(end)))
+    
+    return chrom_to_positions
+
+def determine_if_position_is_in_exon(position: int, starts: list[int], ends: list[int]) -> bool:
+    # # ranges must be sorted by start and non-overlapping
+    # starts = [start for start, _ in ranges]
+    # ends = [end for _, end in ranges]
+
+    idx = bisect.bisect_right(starts, position) - 1
+    in_range = idx >= 0 and position <= ends[idx]
+    return in_range
+    
+
+def keep_only_exons_in_vcf(vcf, gtf, vcf_out=None, total=None, feature="exon"):
+    chrom_to_positions = make_chrom_to_positions_dict(gtf, feature=feature)
+    starts, ends = {}, {}
+    for chrom in chrom_to_positions:
+        chrom_to_positions[chrom].sort(key=lambda x: x[0])  # sort by start
+        starts[chrom] = [start for start, _ in chrom_to_positions[chrom]]
+        ends[chrom] = [end for _, end in chrom_to_positions[chrom]]
+
+    # Iterate and write only if in exon
+    with pysam.VariantFile(vcf, "r") as in_vcf, pysam.VariantFile(vcf_out, "wz", header=in_vcf.header) as out_vcf:
+
+        for record in in_vcf.fetch():
+            try:
+                chrom = str(record.chrom)
+                pos = record.pos  # 1-based
+                if determine_if_position_is_in_exon(pos, starts[chrom], ends[chrom]):
+                    out_vcf.write(record)
+            except Exception as e:
+                continue
+
+if skip_accuracy_analysis:
+    print("Skipping accuracy analysis")
+    sys.exit()
+
 #* SelectVariants
 select_variants_command = [
     gatk, "SelectVariants",
@@ -350,12 +409,11 @@ if tmp_dir:
     select_variants_command += ["--tmp-dir", tmp_dir]
 if not os.path.exists(mutect2_filtered_applied_vcf):
     subprocess.run(select_variants_command, check=True)
-
-if skip_accuracy_analysis:
-    print("Skipping accuracy analysis")
-    sys.exit()
-
-
+    # shouldn't be necessary, but it is
+    if regions:
+        mutect2_filtered_applied_vcf_tmp = mutect2_filtered_applied_vcf.replace(".vcf", "_tmp.vcf")
+        keep_only_exons_in_vcf(mutect2_filtered_applied_vcf, reference_genome_gtf, mutect2_filtered_applied_vcf_tmp, feature="gene")
+        shutil.move(mutect2_filtered_applied_vcf_tmp, mutect2_filtered_applied_vcf)
 
 mutect2_vcf_file = mutect2_filtered_applied_vcf if apply_mutation_filters else mutect2_unfiltered_vcf
 mutect2_vcf_file = os.path.realpath(mutect2_vcf_file)
@@ -445,12 +503,16 @@ def plot_tps_and_fps_by_ad_varseek(df, plot_out_path=None, show=False, upper_lim
     for col in ["TP", "FP"]:
         if col not in result.columns:
             result[col] = 0
-    result["PPV"] = result.get("TP", 0) / (result.get("TP", 0) + result.get("FP", 0))
 
     # --- Bin all AD_VARSEEK > upper_limit into one group ---
     over_upper_limit = result[result.index > upper_limit].sum()
     result = result[result.index <= upper_limit]
-    result.loc[upper_limit + 1] = over_upper_limit  # upper_limit + 1 represents the "upper_limit+" bin
+    if over_upper_limit.sum() > 0:
+        result.loc[upper_limit + 1] = over_upper_limit  # upper_limit + 1 represents the "upper_limit+" bin
+    
+    # compute PPV
+    result["PPV"] = result["TP"] / (result["TP"] + result["FP"])
+    result["PPV"] = result["PPV"].fillna(0)
 
     # --- Sort by AD_VARSEEK ---
     result = result.sort_index()
@@ -515,7 +577,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
         else:
             command = f"hap.py -r {reference_fasta} --engine=scmp-somatic -o {output_prefix_full} {ground_truth_vcf} {test_vcf}"
             if happy_env is not None:
-                command = f"conda run -n {happy_env} " + command
+                command = f"{args.conda} run -n {happy_env} " + command
         if dry_run:
             print("Dry run is true. Run the following command in the terminal, or set dry_run = False:")
             print(command)
@@ -568,7 +630,12 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
             })
 
     df = pd.DataFrame(rows)
-    plot_tps_and_fps_by_ad_varseek(df, plot_out_path=os.path.join(output_dir, f"{output_prefix}_tp_fp_by_ad_varseek.png"), upper_limit=30)
     df.to_csv(os.path.join(output_dir, f"{output_prefix}.detailed.csv"), index=False)
 
+    plot_tps_and_fps_by_ad_varseek(df, plot_out_path=os.path.join(output_dir, f"{output_prefix}_tp_fp_by_ad_varseek.png"), upper_limit=30)
+
 compare_two_vcfs_with_hap_py(ground_truth_vcf=mutect2_vcf_file, test_vcf=varseek_denovo_vcf, reference_fasta=reference_genome_fasta, output_dir=happy_out, dry_run=False, use_docker=False, happy_env=happy_env)
+
+
+
+
