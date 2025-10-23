@@ -113,6 +113,9 @@ if __name__ == "__main__":
             threads=config.n_processes,
             index_out=config.index,
             t2g_out=config.t2g,
+            dlist_reference_type="transcriptome",
+            cdna_derived_vcf=True,
+            variant_source="cdna"
         )
     
     if os.path.exists(config.vk_count_dir) and len(os.listdir(config.vk_count_dir)) > 0:

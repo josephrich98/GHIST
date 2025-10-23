@@ -25,7 +25,8 @@ LIMIT_SJDB_INSERT_NSJ=1000000
 LIMIT_BAM_SORT_RAM=0
 STAR_ALIGNMENT_PREFIX="star_"
 ENSEMBL_RELEASE=111
-REFERENCE_SOURCE=dna,gtf
+DISABLE_BCFTOOLS_CALL=false
+BCFTOOLS_CALL_PRIOR=""
 TMP_DIR="/tmp"
 
 # Helper
@@ -48,6 +49,8 @@ Options:
   --read-length INT      read length
   --star-alignment-prefix PREFIX    prefix for STAR output BAM
   --ensembl-release INT  Ensembl release number (default: 111)
+  --disable-bcftools-call  Disable running bcftools call (default: false)
+  --bcftools-call-prior FLOAT   Prior for bcftools call (default: none)
   --tmp-dir DIR          Temporary directory (default: /tmp)
   -h, --help             Show this help
 
@@ -120,6 +123,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ensembl-release)
       ENSEMBL_RELEASE="$2"
+      shift 2
+      ;;
+    --disable-bcftools-call)
+      DISABLE_BCFTOOLS_CALL=true
+      shift
+      ;;
+    --bcftools-call-prior)
+      BCFTOOLS_CALL_PRIOR="$2"
       shift 2
       ;;
     --tmp-dir)
@@ -331,31 +342,41 @@ cmd="bcftools mpileup \
 if (( MIN_COUNTS > 1 )) || [[ -n "$INCLUDE_EXPR" ]]; then
     if [[ -n "$INCLUDE_EXPR" ]]; then
         # both INCLUDE_EXPR and MIN_COUNTS filters
-        cmd+=" | bcftools filter -i \"(${INCLUDE_EXPR}) && (INFO/AD[1] >= $MIN_COUNTS)\" -Ou"
+        cmd+=, | bcftools filter -i \"(${INCLUDE_EXPR}) && (INFO/AD[1] >= $MIN_COUNTS)\" --threads \"$THREADS\" -Ou"
     else
         # only MIN_COUNTS filter
-        cmd+=" | bcftools filter -i \"INFO/AD[1] >= $MIN_COUNTS\" -Ou"
+        cmd+=" | bcftools filter -i \"INFO/AD[1] >= $MIN_COUNTS\" --threads \"$THREADS\" -Ou"
     fi
 fi
 
-# cmd+=" | bcftools call -m -A -v -Ou"
+if [[ "$DISABLE_BCFTOOLS_CALL" == false ]]; then
+    # Add bcftools call step
+    cmd+=" | bcftools call -m -A -v --threads \"$THREADS\" -Ou"
+    if [[ -n "$BCFTOOLS_CALL_PRIOR" ]]; then
+        cmd+=" --prior \"$BCFTOOLS_CALL_PRIOR\""
+    fi
+fi
 
 # Always normalize
-cmd+=" | bcftools norm -f \"$FASTA_REF\" -c s -d all -m -any -Ou"
+cmd+=" | bcftools norm -f \"$FASTA_REF\" -c s -d all -m -any --threads \"$THREADS\""
 
 # Conditionally filter again - I filter before normalization to speed up the process, but I need to filter again after normalization to be accurate (AD values may have changed)
 if (( MIN_COUNTS > 1 )) || [[ -n "$INCLUDE_EXPR" ]]; then
     if [[ -n "$INCLUDE_EXPR" ]]; then
         # both INCLUDE_EXPR and MIN_COUNTS filters
-        cmd+=" | bcftools filter -i \"(${INCLUDE_EXPR}) && (INFO/AD[1] >= $MIN_COUNTS)\" -Ou"
+        cmd+=" -Ou | bcftools filter -i \"(${INCLUDE_EXPR}) && (INFO/AD[1] >= $MIN_COUNTS)\" --threads \"$THREADS\""
     else
         # only MIN_COUNTS filter
-        cmd+=" | bcftools filter -i \"INFO/AD[1] >= $MIN_COUNTS\" -Ou"
+        cmd+=" -Ou | bcftools filter -i \"INFO/AD[1] >= $MIN_COUNTS\" --threads \"$THREADS\""
     fi
 fi
 
 # Finally, view/output
-cmd+=" | bcftools view -e 'ALT=\"<*>\"' \"$OUTPUT_TYPE\" -o \"$OUTPUT\""
+if [[ "$DISABLE_BCFTOOLS_CALL" == true ]]; then
+    cmd+=" -Ou | bcftools view --threads \"$THREADS\" -e 'ALT=\"<*>\"' -o \"$OUTPUT\" $OUTPUT_TYPE"
+else
+    cmd+=" -o \"$OUTPUT\" $OUTPUT_TYPE"
+fi
 
 # Run it
 echo "$cmd"
