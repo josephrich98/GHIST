@@ -631,6 +631,7 @@ def compare_two_vcfs_with_hap_py(ground_truth_vcf, test_vcf, reference_fasta, ou
 
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(output_dir, f"{output_prefix}.detailed.csv"), index=False)
+    print("WARNING: Some AD values are not correctly extracted.")
 
     plot_tps_and_fps_by_ad_varseek(df, plot_out_path=os.path.join(output_dir, f"{output_prefix}_tp_fp_by_ad_varseek.png"), upper_limit=30)
 

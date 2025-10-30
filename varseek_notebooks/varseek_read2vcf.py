@@ -8,6 +8,13 @@ import logging
 import shlex
 import tempfile
 
+from collections import Counter
+import pysam
+from tqdm import tqdm
+import pandas as pd
+import matplotlib.pyplot as plt
+import re
+
 logger = logging.getLogger(__name__)
 
 def configure_logger(verbose_level, quiet):
@@ -30,14 +37,131 @@ def run(cmd, check=True, shell=True, logger=logger):
 
 def check_tool(tool):
     """Ensure that a required command-line tool is available."""
-    if not shutil.which(tool) or not os.path.exists(tool):
-        sys.exit(f"Error: required tool '{tool}' is not installed or not in PATH.")
+    if not shutil.which(tool) and not os.path.exists(tool):
+        raise ValueError(f"required tool '{tool}' is not installed or not in PATH.")
 
-def sanitize_ref_name(fasta_ref):
-    """Strip .fa/.fasta/.fna(.gz) and replace dots with underscores."""
-    ref_base = os.path.basename(fasta_ref)
-    ref_base = re.sub(r"\.(fa|fasta|fna)(\.gz)?$", "", ref_base)
-    return ref_base.replace(".", "_")
+
+def parse_cigars(bam_path=None, total=None, out_plot=None, do_baq=False, regions=None, min_threshold=3, strip_version_numbers=False, out_csv=None, logger=logger):
+    import pyranges as pr
+    # TODO: accept multiple BAMs
+    # TODO: change df column name from Chromosome to Transcript if genome vs cdna (need to detect which I'm using)
+    # TODO: implement BAQ adjustment if do_baq=True
+    # TODO: distinguish delins from multiple substitutions
+    # TODO: try parsing STAR-aligned (I need to run STAR with --outSAMattributes NH HI AS nM MD)
+    bam = pysam.AlignmentFile(bam_path, "rb")
+    variant_counter = Counter()
+
+    if total is True:
+        total = sum(1 for _ in bam)
+        bam.reset()
+
+    for read in tqdm(bam, total=total):
+        if read.is_unmapped:
+            continue
+        if all(op in {3, 4, 5, 6, 7} for op, _ in read.cigartuples):  # skip reads without difference from reference
+            continue
+
+        chrom = bam.get_reference_name(read.reference_id)
+        seq = read.query_sequence
+        ref_pos = read.reference_start + 1
+        read_pos = 0
+        md = read.get_tag("MD") if read.has_tag("MD") else None
+
+        # --- Mismatches and deletions (from MD) ---
+        if md:
+            tokens = re.findall(r'(\d+)|(\^[A-Z]+)|([A-Z])', md)
+            for num, deletion, mismatch in tokens:
+                if num:
+                    n = int(num)
+                    ref_pos += n
+                    read_pos += n
+                elif deletion:
+                    # Deletion from reference
+                    deleted_bases = deletion[1:]
+                    if len(deleted_bases) == 1:
+                        hgvs = f"{chrom}:g.{ref_pos}del"  # {deleted_bases}"
+                    else:
+                        hgvs = f"{chrom}:g.{ref_pos}_{ref_pos+len(deleted_bases)-1}del"  # {deleted_bases}"
+                    variant_counter[hgvs] += 1
+                    ref_pos += len(deleted_bases)
+                elif mismatch:
+                    # SNV
+                    ref_base = mismatch
+                    alt_base = seq[read_pos]
+                    hgvs = f"{chrom}:g.{ref_pos}{ref_base}>{alt_base}"
+                    variant_counter[hgvs] += 1
+                    ref_pos += 1
+                    read_pos += 1
+
+        # --- Insertions (from CIGAR) ---
+        for op, length in read.cigartuples:
+            if op in (0, 7, 8):  # M, =, X
+                ref_pos += length
+                read_pos += length
+            elif op == 1:  # Insertion
+                ins_seq = seq[read_pos:read_pos + length]
+                hgvs = f"{chrom}:g.{ref_pos}_{ref_pos+1}ins{ins_seq}"
+                variant_counter[hgvs] += 1
+                read_pos += length
+            elif op in (2, 3):  # Deletion (already handled by MD) or skipped region (N - e.g., intron, functionally similar to deletion)
+                ref_pos += length
+            elif op == 4:  # soft clipping
+                read_pos += length
+            # elif op in (5, 6):  # hard clipping or padding
+                # pass  # do nothing
+        
+        # if len(variant_counter) >= limit:
+        #     break
+
+    # for variant, count in variant_counter.most_common(10):
+    #     print(variant, count)
+
+    # make histogram of filtered_variants counts
+    if out_plot:
+        counts = list(variant_counter.values())
+        plt.figure(figsize=(8,5))
+        plt.hist(counts, bins=50, color="skyblue", edgecolor="black")
+        plt.yscale("log")
+        plt.xlabel("Variant Count")
+        plt.ylabel("Frequency (log scale)")
+        plt.title("Histogram of Variant Counts (Filtered)")
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(out_plot)
+        plt.close()
+
+    df = pd.DataFrame(variant_counter.items(), columns=["key", "Count"])
+    logger.info("Total unique variants found:", len(df))
+
+    df[["Chromosome", "Variant"]] = df["key"].str.split(":", n=1, expand=True)  # Split key like "1:g.17746delA" into two columns
+
+    if regions:
+        df["pos"] = pd.to_numeric(df["Variant"].str.extract(r"g\.(\d+)")[0])
+        df["Start"] = df["pos"] - 1  # PyRanges is half-open: [start, end)
+        df["End"] = df["pos"]
+
+        # Convert both to PyRanges
+        variants_pr = pr.PyRanges(df[["Chromosome", "Variant", "Start", "End", "key", "Count"]])
+        bed_pr = pr.read_bed(regions)
+
+        # Interval intersection (fast!)
+        df = variants_pr.join(bed_pr).as_df()
+        df = df.drop_duplicates(subset=["Chromosome", "Variant"]).reset_index(drop=True)
+        logger.info("Total unique variants after region filtering:", len(df))
+
+    df = df[["Chromosome", "Variant", "Count"]]
+
+    if strip_version_numbers:
+        df["Chromosome"] = df["Chromosome"].str.replace(r"\.[0-9]+$", "", regex=True)
+
+    if min_threshold:
+        df = df.loc[df["Count"] >= min_threshold].reset_index(drop=True)
+        logger.info("Total unique variants after applying min_threshold:", len(df))
+
+    if out_csv:
+        df.to_csv(out_csv, index=False)
+
+    logger.info(f"Final unique variants: {len(df)}")
 
 def read2vcf(
     inputs,
@@ -48,10 +172,12 @@ def read2vcf(
     star_alignment_prefix="star_",
     bowtie2_alignment_dir="bowtie2_alignments",
     regions=None,
+    out_bam_dir=None,
     output="out.vcf.gz",
     read_length=90,
     min_counts=3,
     aligner="STAR",
+    variant_caller="bcftools",
     bowtie2_seed_length=None,
     bowtie2_score_min=None,
     include=None,
@@ -77,49 +203,51 @@ def read2vcf(
 
     #* Validate flagged arguments
     if not output.endswith(".vcf") and not output.endswith(".vcf.gz"):
-        sys.exit("Error: --output must end with .vcf or .vcf.gz")
+        raise ValueError("--output must end with .vcf or .vcf.gz")
     if fasta_ref:
         valid_fasta_extensions = [".fa", ".fasta", ".fa.gz", ".fasta.gz", ".fna", ".fna.gz"]
         if not any(fasta_ref.endswith(ext) for ext in valid_fasta_extensions):
-            sys.exit(f"Error: --fasta-ref must be a FASTA file ending with {', '.join(valid_fasta_extensions)}")
+            raise ValueError(f"--fasta-ref must be a FASTA file ending with {', '.join(valid_fasta_extensions)}")
         if not os.path.isfile(fasta_ref):
             fasta_dir = os.path.dirname(fasta_ref) or "."
             recommended_command = f"gget ref -r 111 -d -od {fasta_dir} -w dna human && gunzip {fasta_ref}.gz"
-            sys.exit(f"Error: FASTA reference '{fasta_ref}' not found. Recommended command to download: {recommended_command}")
+            raise ValueError(f"FASTA reference '{fasta_ref}' not found. Recommended command to download: {recommended_command}")
     if gtf:
         if not gtf.endswith(".gtf"):
-            sys.exit("Error: --gtf must be a GTF file ending with .gtf")
+            raise ValueError("--gtf must be a GTF file ending with .gtf")
         if not os.path.isfile(gtf):
             gtf_dir = os.path.dirname(gtf) or "."
             recommended_command = f"gget ref -r 111 -d -od {gtf_dir} -w gtf human && gunzip {gtf}.gz"
-            sys.exit(f"Error: GTF file '{gtf}' not found. Recommended command to download: {recommended_command}")
+            raise ValueError(f"GTF file '{gtf}' not found. Recommended command to download: {recommended_command}")
     if regions:
         if not regions.endswith(".bed"):
-            sys.exit("Error: --regions must be a BED file ending with .bed")
+            raise ValueError("--regions must be a BED file ending with .bed")
         if not os.path.isfile(regions):
             # recommended_command = f"awk '$3 == \"gene\" {{print $1, $4-1, $5, $10}}' OFS='\\t' {gtf} | sort -k1,1V -k2,2n -o {regions}"
-            sys.exit(f"Error: regions BED file '{regions}' not found.")
+            raise ValueError(f"regions BED file '{regions}' not found.")
     if min_counts < 2:
         min_counts = 0
         logger.warning("Filtering by a minimum count threshold is highly recommended. Additionally, indels observed once will not be output regardless of settings (bcftools mpileup behavior).")
     if not aligner in ["STAR", "bowtie2"]:
-        sys.exit("Error: --aligner must be either 'STAR' or 'bowtie2'")
+        raise ValueError("--aligner must be either 'STAR' or 'bowtie2'")
+    if not variant_caller in ["bcftools", "cigar"]:
+        raise ValueError("--variant-caller must be either 'bcftools' or 'cigar'")
     if os.path.exists(output) and not overwrite:
-        sys.exit(f"Error: output file '{output}' already exists. Use --overwrite to overwrite.")
+        raise ValueError(f"output file '{output}' already exists. Use --overwrite to overwrite.")
     
     #* Validate inputs
     if isinstance(inputs, str):
         inputs = [inputs]
     if isinstance(inputs, (list, tuple)):
         if len(inputs) > 2:
-            sys.exit("Error: when providing multiple inputs, only two entries are allowed (R1 and R2 for paired-end reads)")
+            raise ValueError("when providing multiple inputs, only two entries are allowed (R1 and R2 for paired-end reads)")
         fastq_files_1 = inputs[0].split(",")
         if len(inputs) == 2:
             fastq_files_2 = inputs[1].split(",")
             if len(fastq_files_1) != len(fastq_files_2):
-                sys.exit("Error: number of R1 and R2 FASTQ files must be the same for paired-end reads")   
+                raise ValueError("number of R1 and R2 FASTQ files must be the same for paired-end reads")   
     else:
-        sys.exit("Error: inputs must be a string or a list/tuple of strings")
+        raise ValueError("inputs must be a string or a list/tuple of strings")
     
     valid_fastq_extensions = [".fq", ".fastq", ".fq.gz", ".fastq.gz"]
     valid_bam_extensions = [".bam"]
@@ -131,20 +259,29 @@ def read2vcf(
                 if input_type is None:
                     input_type = "fastq"
                 elif input_type != "fastq":
-                    sys.exit("Error: all inputs must be of the same type (either FASTQ or BAM)")
+                    raise ValueError("all inputs must be of the same type (either FASTQ or BAM)")
             elif any(file.endswith(ext) for ext in valid_bam_extensions):
                 if input_type is None:
                     input_type = "bam"
                 elif input_type != "bam":
-                    sys.exit("Error: all inputs must be of the same type (either FASTQ or BAM)")
+                    raise ValueError("all inputs must be of the same type (either FASTQ or BAM)")
             else:
-                sys.exit(f"Error: input file '{file}' must be a FASTQ or BAM file")
+                raise ValueError(f"input file '{file}' must be a FASTQ or BAM file")
             if not os.path.isfile(file):
-                sys.exit(f"Error: input file '{file}' not found")
+                raise ValueError(f"input file '{file}' not found")
     
     #* Define derivative variables
     output_type = "-Oz" if output.endswith(".gz") else "-Ov"
     os.makedirs(os.path.dirname(output) or ".", exist_ok=True)
+    
+    bcftools_verbosity = ""
+    if quiet:
+        bcftools_verbosity = f" --verbosity 0"
+    elif verbose == 1:
+        bcftools_verbosity = f" --verbosity 2"
+    elif verbose >= 2:
+        bcftools_verbosity = f" --verbosity 3"
+
     do_filtering = (min_counts > 1) or (include is not None)
     if do_filtering:
         filter_expression = f"bcftools filter --threads {threads} {bcftools_verbosity}"
@@ -152,12 +289,6 @@ def read2vcf(
             filter_expression += f" -i '{include}'"
         if min_counts > 1:
             filter_expression += f" -i 'INFO/AD[1] >= {min_counts}'"
-    bcftools_verbosity = ""
-    if not quiet:
-        if verbose == 1:
-            bcftools_verbosity = " -v"
-        elif verbose >= 2:
-            bcftools_verbosity = " -vv"
 
     #* Align reads if BAM doesn't exist
     bam_for_bcftools = None
@@ -177,6 +308,7 @@ def read2vcf(
                 
                 logger.info("Running STAR alignment...")
                 inputs_star = " ".join(inputs)
+                # TODO: add merge_bam_files logic for STAR (right now it always merges into one BAM)
                 cmd = f"""
                 STAR --runThreadN {threads} \
                     --genomeDir {star_genome_index_dir} \
@@ -197,7 +329,8 @@ def read2vcf(
                 if split_bam_by_n:
                     check_tool("gatk")
                     split_bam = f"{star_alignment_prefix}split_exons.sorted.bam"
-                    if not os.path.exists(split_bam):  # TODO: rewrite without GATK dependency
+                    if not os.path.exists(split_bam):
+                        # TODO: rewrite without GATK dependency
                         split_cmd = f"gatk SplitNCigarReads -R {fasta_ref} -I {bam_for_bcftools} -O {split_bam} --create-output-bam-index"
                         if tmp_dir:
                             split_cmd += f" --tmp-dir {tmp_dir}"
@@ -212,13 +345,14 @@ def read2vcf(
                 bowtie2_options += f" -L {bowtie2_seed_length}"
             if bowtie2_score_min is not None:
                 bowtie2_options += f" --score-min {bowtie2_score_min}"
+            
+            bowtie2_genome_index_file = f"{bowtie2_genome_index_prefix}.1.bt2"
+            bowtie_build_command = f"bowtie2-build {fasta_ref} {bowtie2_genome_index_prefix}"
 
             if merge_bam_files:
                 bam_for_bcftools = os.path.join(bowtie2_alignment_dir, "aligned.sorted.bam")
                 if not os.path.exists(bam_for_bcftools):
-                    bowtie2_genome_index_file = f"{bowtie2_genome_index_prefix}.1.bt2"
                     if not os.path.exists(bowtie2_genome_index_file):
-                        bowtie_build_command = f"bowtie2-build {fasta_ref} {bowtie2_genome_index_prefix}"
                         run(bowtie_build_command)
                     os.makedirs(bowtie2_alignment_dir, exist_ok=True)
                     if len(inputs) == 2:  # paired-end
@@ -239,113 +373,146 @@ def read2vcf(
                     for fastq1, fastq2 in zip(fastq_files_1, fastq_files_2):
                         fq_base = re.sub(r"\..*", "", os.path.basename(fastq1))
                         bam_out = os.path.join(out_bam_dir, f"{fq_base}_aligned_to_{fasta_ref_base}.bam")
-                        bowtie2_align_command = f"bowtie2 --xeq --very-sensitive {bowtie2_options} --threads {threads} -x {bowtie2_genome_index_prefix} -1 {fastq1} -2 {fastq2} | samtools view -bS - | samtools sort -o {bam_out}"
-                        run(bowtie2_align_command)
-                        if os.path.exists(bam_out):
-                            bam_for_bcftools.append(bam_out)
-                        else:
-                            logger.warning(f"Bowtie2 alignment for {fastq1} and {fastq2} did not produce expected BAM output '{bam_out}'")
+                        if not os.path.exists(bam_out):
+                            if not os.path.exists(bowtie2_genome_index_file):
+                                run(bowtie_build_command)
+                            bowtie2_align_command = f"bowtie2 --xeq --very-sensitive {bowtie2_options} --threads {threads} -x {bowtie2_genome_index_prefix} -1 {fastq1} -2 {fastq2} | samtools view -bS - | samtools sort -o {bam_out}"
+                            run(bowtie2_align_command)
+                        bam_for_bcftools.append(bam_out)
                 elif len(inputs) == 1:  # single-end
                     for fastq in fastq_files_1:
                         fq_base = re.sub(r"\..*", "", os.path.basename(fastq))
                         bam_out = os.path.join(out_bam_dir, f"{fq_base}_aligned_to_{fasta_ref_base}.bam")
-                        bowtie2_align_command = f"bowtie2 --xeq --very-sensitive {bowtie2_options} --threads {threads} -x {bowtie2_genome_index_prefix} -U {fastq} | samtools view -bS - | samtools sort -o {bam_out}"
-                        run(bowtie2_align_command)
-                        if os.path.exists(bam_out):
-                            bam_for_bcftools.append(bam_out)
-                        else:
-                            logger.warning(f"Bowtie2 alignment for {fastq} did not produce expected BAM output '{bam_out}'")
+                        if not os.path.exists(bam_out):
+                            if not os.path.exists(bowtie2_genome_index_file):
+                                run(bowtie_build_command)
+                            bowtie2_align_command = f"bowtie2 --xeq --very-sensitive {bowtie2_options} --threads {threads} -x {bowtie2_genome_index_prefix} -U {fastq} | samtools view -bS - | samtools sort -o {bam_out}"
+                            run(bowtie2_align_command)
+                        bam_for_bcftools.append(bam_out)
                 else:
-                    sys.exit("Error: invalid number of inputs for bowtie2 alignment")
+                    raise ValueError("invalid number of inputs for bowtie2 alignment")
+                
                 bam_for_bcftools = " ".join(bam_for_bcftools)
         else:
-            sys.exit(f"Error: aligner '{aligner}' not supported")
+            raise ValueError(f"aligner '{aligner}' not supported")
 
     #* Index BAM
     assert isinstance(bam_for_bcftools, str)
     bam_files = shlex.split(bam_for_bcftools)
     for bam in bam_files:
+        if not os.path.exists(bam):
+            raise ValueError(f"BAM file '{bam}' not found")
         bai = bam + ".bai"
         if not os.path.exists(bai):
             run(f"samtools index -@ {threads} {bam}")
     
     #* bcftools mpileup
-    if not os.path.exists(bam_for_bcftools):
-        sys.exit("Error: BAM file for bcftools not found or generated")
+    if variant_caller == "bcftools":
+        if not output.endswith(".vcf") and not output.endswith(".vcf.gz"):
+            raise ValueError("when using 'bcftools' variant caller, --output must end with .vcf or .vcf.gz")
+        
+        bcftools_cmd = f"bcftools mpileup --threads {threads} -A -f {fasta_ref} -a INFO/AD -Q 0 -d 10000 -Ou {bcftools_verbosity}"
+        if regions:
+            bcftools_cmd += f" -R {regions}"
+        if disable_baq:
+            bcftools_cmd += " -B"
+        if skip_indels:
+            bcftools_cmd += " -I"
+        bcftools_cmd += f" {bam_for_bcftools}"
 
-    bcftools_cmd = f"bcftools mpileup --threads {threads} -A -f {fasta_ref} -a INFO/AD -Q 0 -d 10000 -Ou {bcftools_verbosity}"
-    if regions:
-        bcftools_cmd += f" -R {regions}"
-    if disable_baq:
-        bcftools_cmd += " -B"
-    if skip_indels:
-        bcftools_cmd += " -I"
-    bcftools_cmd += f" {bam_for_bcftools}"
-
-    #* bcftools filter
-    if do_filtering:
-        bcftools_cmd += f" | {filter_expression} -Ou"
-    
-    #* bcftools call
-    bcftools_cmd += f" | bcftools call -m -A -v --threads {threads} {bcftools_verbosity}"
-    if bcftools_call_prior:
-        bcftools_cmd += f" --prior {bcftools_call_prior}"
-
-    #* optional: bcftools norm and additional filter (must repeat after normalization)
-    if not disable_bcftools_norm:
-        bcftools_cmd += f" -Ou | bcftools norm -f {fasta_ref} -c s -d all -m -any --threads {threads} {bcftools_verbosity}"
+        #* bcftools filter
         if do_filtering:
-            bcftools_cmd += f" -Ou | {filter_expression}"
+            bcftools_cmd += f" | {filter_expression} -Ou"
+        
+        #* bcftools call
+        bcftools_cmd += f" | bcftools call -m -A -v --threads {threads} {bcftools_verbosity}"
+        if bcftools_call_prior:
+            bcftools_cmd += f" --prior {bcftools_call_prior}"
 
-    bcftools_cmd += f" {output_type} -o {output}"
+        #* optional: bcftools norm and additional filter (must repeat after normalization)
+        if not disable_bcftools_norm:
+            bcftools_cmd += f" -Ou | bcftools norm -f {fasta_ref} -c s -d all -m -any --threads {threads} {bcftools_verbosity}"
+            if do_filtering:
+                bcftools_cmd += f" -Ou | {filter_expression}"
 
-    run(bcftools_cmd)
+        bcftools_cmd += f" {output_type} -o {output}"
 
-    #* optional: strip version numbers
-    if strip_version_numbers:
-        tmp_fh = tempfile.NamedTemporaryFile(delete=False, suffix=".vcf.gz" if output_type == "-Oz" else ".vcf")
-        tmp_file = tmp_fh.name
-        tmp_fh.close()
-        if output_type == "-Oz":
-            # compressed .vcf.gz
-            logger.info(f"Stripping version numbers and recompressing {output}...")
-            cmd = (
-                f"zcat {output} "
-                r"| awk 'BEGIN{{OFS=\"\t\"}} {{sub(/\.[0-9]+$/, \"\", $1); print}}' "
-                f"| bgzip > {tmp_file}"
-            )
-            subprocess.run(cmd, shell=True, check=True)
-        else:
-            # uncompressed .vcf
+        run(bcftools_cmd)
+
+        #* optional: strip version numbers
+        if strip_version_numbers:
+            tmp_fh = tempfile.NamedTemporaryFile(delete=False, suffix=".vcf.gz" if output_type == "-Oz" else ".vcf")
+            tmp_file = tmp_fh.name
+            tmp_fh.close()
             logger.info(f"Stripping version numbers in {output}...")
-            cmd = (
-                r"awk 'BEGIN{OFS=\"\t\"} {sub(/\.[0-9]+$/, \"\", $1); print}' "
-                f"{output} > {tmp_file}"
-            )
-            subprocess.run(cmd, shell=True, check=True)
+            if output_type == "-Oz":
+                # compressed .vcf.gz
+                cmd = f"""
+                zcat {output} |
+                awk 'BEGIN{{OFS="\\t"}} {{sub(/\\.[0-9]+$/, "", $1); print}}' |
+                bgzip -c > {tmp_file}
+                """.strip()
 
-        shutil.move(tmp_file, output)
+                # # try this to also handle contig lines
+                # cmd = f"""
+                # zcat {output} |
+                # awk '
+                #     BEGIN {{ OFS="\\t" }}
+                #     /^##contig=/ {{ sub(/\\.[0-9]+/, "", $0); print; next }}
+                #     /^#/ {{ print; next }}
+                #     {{ sub(/\\.[0-9]+$/, "", $1); print }}
+                # ' |
+                # bgzip -c > {tmp_file}
+                # """.strip()
 
-    #* index VCF
-    run(f"bcftools index -f --threads {threads} {output}")
+
+            else:
+                # uncompressed .vcf
+                cmd = f"""
+                awk 'BEGIN{{OFS="\\t"}} {{sub(/\\.[0-9]+$/, "", $1); print}}' {output} > {tmp_file}
+                """.strip()
+
+                # # try this to also handle contig lines
+                # cmd = f"""
+                # awk '
+                #     BEGIN {{ OFS="\\t" }}
+                #     /^##contig=/ {{ sub(/\\.[0-9]+/, "", $0); print; next }}
+                #     /^#/ {{ print; next }}
+                #     {{ sub(/\\.[0-9]+$/, "", $1); print }}
+                # ' {output} > {tmp_file}
+                # """.strip()
+            
+            run(cmd)
+            shutil.move(tmp_file, output)
+
+        #* index VCF
+        run(f"bcftools index -f --threads {threads} {output}")
+    
+    elif variant_caller == "cigar":
+        if not output.endswith(".csv"):
+            raise ValueError("when using 'cigar' variant caller, --output must end with .csv")
+        parse_cigars(bam_path=bam_for_bcftools, total=None, out_plot=None, do_baq=(not disable_baq), regions=regions, min_threshold=min_counts, strip_version_numbers=strip_version_numbers, out_csv=output, logger=logger)
+    else:
+        raise ValueError(f"variant caller '{variant_caller}' not supported")
 
     logger.info(f"Program complete. VCF written to {output}")
 
 def main():
     parser = argparse.ArgumentParser(description="STAR alignment + bcftools variant calling pipeline")
-    parser.add_argument("inputs", nargs="+", help="Input FASTQs. If multiple fastqs, separate with commas. If paired fastqs, first pass in R1 files separated by commas, then space, then R2 files separated by commas.")
+    parser.add_argument("inputs", nargs="+", help="Input or BAMS or FASTQs. If multiple bams or fastqs, separate with commas. If paired fastqs, first pass in R1 files separated by commas, then space, then R2 files separated by commas.")
     parser.add_argument("-f", "--fasta-ref", required=True, help="Reference FASTA file")
-    parser.add_argument("--gtf", default="", help="genome annotation GTF file")
-    parser.add_argument("-x", "--star-genome-index-dir", default="genome_index", help="STAR or Bowtie2 genome index directory")
-    parser.add_argument("--bowtie2-genome-index-prefix", default="bowtie2_index", help="prefix for Bowtie2 genome index files")
+    parser.add_argument("-g", "--gtf", default="", help="genome annotation GTF file")
+    parser.add_argument("-xs", "--star-genome-index-dir", default="genome_index", help="STAR or Bowtie2 genome index directory")
+    parser.add_argument("-xb", "--bowtie2-genome-index-prefix", default="bowtie2_index", help="prefix for Bowtie2 genome index files")
     parser.add_argument("--star-alignment-prefix", default="star_", help="prefix for STAR output BAM")
     parser.add_argument("--bowtie2-alignment-dir", default="bowtie2_alignments", help="directory for Bowtie2 output BAMs")
-    parser.add_argument("--regions", default="", help="BED file of regions to restrict variant calling to")
-    parser.add_argument("--out-bam-dir", default="", help="Output directory for BAM files (for Bowtie2 aligner only when not merging BAMs)")
-    parser.add_argument("-o", "--output", default="out.vcf.gz", help="Output VCF file")
-    parser.add_argument("--read-length", type=int, default=90, help="Read length")
-    parser.add_argument("--min-counts", type=int, default=3, help="Minimum count threshold for filtering")
-    parser.add_argument("--aligner", default="STAR", choices=["STAR", "bowtie2"], help="Aligner to use: STAR or bowtie2")
+    parser.add_argument("-R", "--regions", default="", help="BED file of regions to restrict variant calling to")
+    parser.add_argument("-obd", "--out-bam-dir", default="", help="Output directory for BAM files (for Bowtie2 aligner only when not merging BAMs)")
+    parser.add_argument("-o", "--output", default="out.vcf.gz", help="Output VCF file (For bcftools variant caller) or CSV file (for cigar variant caller)")
+    parser.add_argument("-r", "--read-length", type=int, default=90, help="Read length")
+    parser.add_argument("-m", "--min-counts", type=int, default=3, help="Minimum count threshold for filtering")
+    parser.add_argument("-a", "--aligner", default="STAR", choices=["STAR", "bowtie2"], help="Aligner to use: STAR or bowtie2")
+    parser.add_argument("--variant-caller", default="bcftools", choices=["bcftools", "cigar"], help="Variant caller to use: bcftools or cigar")
     parser.add_argument("--bowtie2-seed-length", type=int, default=None, help="Seed length for Bowtie2 aligner")
     parser.add_argument("--bowtie2-score-min", default=None, help="Score minimum for Bowtie2 aligner")
     parser.add_argument("-i", "--include", default="", help="bcftools filter expression")
@@ -357,7 +524,7 @@ def main():
     parser.add_argument("--disable-bcftools-norm", action="store_true", help="Disable running bcftools norm")
     parser.add_argument("--bcftools-call-prior", default="", help="Prior for bcftools call")
     parser.add_argument("--tmp-dir", default="/tmp", help="Temporary directory for intermediate files") 
-    parser.add_argument("--threads", type=int, default=1, help="Number of threads to use")
+    parser.add_argument("-t", "--threads", type=int, default=1, help="Number of threads to use")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite output file if it exists")
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase output verbosity (default logging.WARNING, -v logging.INFO, -vv for logging.DEBUG)") 
     parser.add_argument("-q", "--quiet", action="store_true", help="Suppress all output (overrides any verbose flag)") 
@@ -377,6 +544,7 @@ def main():
         read_length=args.read_length,
         min_counts=args.min_counts,
         aligner=args.aligner,
+        variant_caller=args.variant_caller,
         bowtie2_seed_length=args.bowtie2_seed_length,
         bowtie2_score_min=args.bowtie2_score_min,
         include=args.include,

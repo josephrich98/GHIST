@@ -107,15 +107,17 @@ def get_newest_id(exp_dir="experiments", fold_id=1):
     return exp_id
 
 
-def get_experiment_id(make_new, load_dir, fold_id, run_name):
+def get_experiment_id(make_new, load_dir, fold_id, run_name, jupyter=False):
     """
     Get timestamp ID of current experiment
     """
     run_name_dir_full = f"experiments/{run_name}"
     if make_new is False:
-        if load_dir != "latest" and not os.path.exists(os.path.join(run_name_dir_full, load_dir)):
+        if load_dir != "latest" and not os.path.exists(os.path.join(run_name_dir_full, load_dir)) and not jupyter:
             raise ValueError(f"Experiment directory {os.path.join(run_name_dir_full, load_dir)} does not exist. Please set load_dir to 'latest' or an existing directory in {run_name_dir_full} (or check 'run_name'={run_name}).")
         if load_dir == "latest":
+            if jupyter and (not os.path.exists(run_name_dir_full) or len(os.listdir(run_name_dir_full)) == 0):
+                raise ValueError(f"Experiment directory {run_name_dir_full} does not exist or is empty. Please set config[experiment_dirs][load_dir] to a value other than latest.")
             timestamp = get_newest_id(run_name_dir_full, fold_id)
         else:
             timestamp = load_dir
