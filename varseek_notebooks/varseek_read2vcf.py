@@ -449,38 +449,26 @@ def read2vcf(
                 # compressed .vcf.gz
                 cmd = f"""
                 zcat {output} |
-                awk 'BEGIN{{OFS="\\t"}} {{sub(/\\.[0-9]+$/, "", $1); print}}' |
+                awk '
+                    BEGIN {{ OFS="\\t" }}
+                    /^##contig=/ {{ sub(/\\.[0-9]+/, "", $0); print; next }}
+                    /^#/ {{ print; next }}
+                    {{ sub(/\\.[0-9]+$/, "", $1); print }}
+                ' |
                 bgzip -c > {tmp_file}
                 """.strip()
-
-                # # try this to also handle contig lines
-                # cmd = f"""
-                # zcat {output} |
-                # awk '
-                #     BEGIN {{ OFS="\\t" }}
-                #     /^##contig=/ {{ sub(/\\.[0-9]+/, "", $0); print; next }}
-                #     /^#/ {{ print; next }}
-                #     {{ sub(/\\.[0-9]+$/, "", $1); print }}
-                # ' |
-                # bgzip -c > {tmp_file}
-                # """.strip()
 
 
             else:
                 # uncompressed .vcf
                 cmd = f"""
-                awk 'BEGIN{{OFS="\\t"}} {{sub(/\\.[0-9]+$/, "", $1); print}}' {output} > {tmp_file}
+                awk '
+                    BEGIN {{ OFS="\\t" }}
+                    /^##contig=/ {{ sub(/\\.[0-9]+/, "", $0); print; next }}
+                    /^#/ {{ print; next }}
+                    {{ sub(/\\.[0-9]+$/, "", $1); print }}
+                ' {output} > {tmp_file}
                 """.strip()
-
-                # # try this to also handle contig lines
-                # cmd = f"""
-                # awk '
-                #     BEGIN {{ OFS="\\t" }}
-                #     /^##contig=/ {{ sub(/\\.[0-9]+/, "", $0); print; next }}
-                #     /^#/ {{ print; next }}
-                #     {{ sub(/\\.[0-9]+$/, "", $1); print }}
-                # ' {output} > {tmp_file}
-                # """.strip()
             
             run(cmd)
             shutil.move(tmp_file, output)
