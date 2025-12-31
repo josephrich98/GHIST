@@ -1,8 +1,6 @@
 .DS_Store
 .vscode
 **/__pycache__
-configs/*
-!configs/config_demo.json
 *.pbs
 standardisation_*
 demo_*.ipynb
