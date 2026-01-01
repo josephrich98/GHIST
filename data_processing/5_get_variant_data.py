@@ -97,8 +97,10 @@ if __name__ == "__main__":
             
             # cmd.extend(r2_fastqs)
             
+            varseek_notebooks_path = os.path.join(os.path.dirname(os.getcwd()), "varseek_notebooks")
+            varseek_read2vcf_path = os.path.join(varseek_notebooks_path, "varseek_read2vcf.py")
             cmd = [
-                "python", "varseek_read2vcf.py",
+                "python", varseek_read2vcf_path,
                 "--threads", str(config.n_processes),
                 "--fasta-ref", config.fasta_ref,
                 "--aligner", "bowtie2",
@@ -111,6 +113,8 @@ if __name__ == "__main__":
 
             # Run it
             subprocess.run(cmd, check=True)
+        else:
+            print(f"Preliminary variants VCF {config.preliminary_variants_vcf} already exists, skipping read2vcf_cdna.sh")
         
         print("Building varseek reference index de novo...")
         vk.ref(
@@ -131,18 +135,18 @@ if __name__ == "__main__":
     
     if os.path.exists(config.vk_count_dir) and len(os.listdir(config.vk_count_dir)) > 0:
         print(f"vk count output directory {config.vk_count_dir} already exists and is not empty, skipping vk count")
-    else:
-        print("Running vk count")
-        vk_count_output_dict = vk.count(
-            fastqs=config.fastqs,
-            index=config.index,
-            t2g=config.t2g,
-            technology=config.technology,
-            k=config.k,
-            out=config.vk_count_dir,
-            threads=config.n_processes,
-            min_counts=config.min_counts,
-        )
+    # else:  # commented out because I need to populate vk_count_output_dict regardless
+    print("Running vk count")
+    vk_count_output_dict = vk.count(
+        fastqs=config.fastqs,
+        index=config.index,
+        t2g=config.t2g,
+        technology=config.technology,
+        k=config.k,
+        out=config.vk_count_dir,
+        threads=config.n_processes,
+        min_counts=config.min_counts,
+    )
     
     # save to CSV
     adata = ad.read_h5ad(vk_count_output_dict["adata_path"])
@@ -152,10 +156,10 @@ if __name__ == "__main__":
     if not config.disable_use_binary_matrix:
         adata.X = (adata.X > 0).astype(int)
     
-    if not config.drop_empty_columns:
+    if not config.disable_drop_empty_columns:
         adata = adata[:, np.array((adata.X != 0).sum(axis=0)).flatten() > 0]
 
-    if os.path.exists(cell_barcode_to_id_path):
+    if cell_barcode_to_id_path is not None and os.path.exists(cell_barcode_to_id_path):
         mapping_df = pd.read_csv(cell_barcode_to_id_path, index_col=0)
         id_map = mapping_df["cell_id_num"].to_dict()
         adata.obs.index = adata.obs.index.map(id_map)
@@ -167,8 +171,8 @@ if __name__ == "__main__":
             raise ValueError("No cells left after mapping barcodes to cell ids, please check the barcode to cell id mapping file")
         if adata_shape_before[0] != adata_shape_after[0]:
             print(f"Warning: {adata_shape_before[0] - adata_shape_after[0]} cells were removed because they were not found in the barcode to cell id mapping file")
-    
-    if os.path.exists(cell_gene_matrix_filtered_path):
+
+    if cell_gene_matrix_filtered_path is not None and os.path.exists(cell_gene_matrix_filtered_path):
         df = pd.read_csv(cell_gene_matrix_filtered_path, usecols=[0])
         df.columns = ["id"]
 
